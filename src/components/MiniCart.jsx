@@ -145,7 +145,8 @@ function MiniCart() {
                                                         <button
                                                             className="btn btn-sm border-0 p-1"
                                                             onClick={() => updateQuantity(item.cartItemId, 1)}
-                                                            style={{ background: 'transparent', color: 'var(--main-4)', fontSize: '16px', lineHeight: '1', padding: '2px 6px' }}
+                                                            disabled={(item.selectedSize?.stock != null ? Number(item.selectedSize.stock) : (item.stock != null ? Number(item.stock) : Infinity)) <= item.quantity}
+                                                            style={{ background: 'transparent', color: 'var(--main-4)', fontSize: '16px', lineHeight: '1', padding: '2px 6px', opacity: (item.selectedSize?.stock != null ? Number(item.selectedSize.stock) : (item.stock != null ? Number(item.stock) : Infinity)) <= item.quantity ? 0.3 : 1 }}
                                                         >
                                                             +
                                                         </button>

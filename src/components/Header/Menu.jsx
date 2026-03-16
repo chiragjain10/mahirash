@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import './Header.css';
 import { db } from '../firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+
+const baseCategories = ['Designer', 'Middle eastern', 'niche', 'Vials', 'Gift sets', 'Combo'];
 
 const navLinks = [
   { label: 'Home', to: '/', icon: (
@@ -11,7 +13,7 @@ const navLinks = [
       <path d="M9 22V12h6v10" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   ) },
-  { label: 'Brands', icon: (
+  { label: 'Categories', icon: (
     <svg width="24" height="24" fill="none" viewBox="0 0 24 24">
       <rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round"/>
       <rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round"/>
@@ -48,7 +50,7 @@ export default function Menu({ drawerOpen, setDrawerOpen }) {
   const [showMegaMenu, setShowMegaMenu] = useState(false);
   const [mobileCategoriesOpen, setMobileCategoriesOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [brands, setBrands] = useState([]);
+  const [categories, setCategories] = useState(baseCategories);
 
   // Scroll detection
   useEffect(() => {
@@ -61,21 +63,25 @@ export default function Menu({ drawerOpen, setDrawerOpen }) {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Fetch unique brands from Firestore products
+  // Fetch unique categories from Firestore metadata
   useEffect(() => {
-    const fetchBrands = async () => {
+    const fetchCategories = async () => {
       try {
-        const snapshot = await getDocs(collection(db, 'products'));
-        const all = snapshot.docs
-          .map(d => (d.data()?.brand || '').toString().trim())
-          .filter(Boolean);
-        const unique = Array.from(new Set(all)).sort((a, b) => a.localeCompare(b));
-        setBrands(unique);
+        const docRef = doc(db, 'metadata', 'lists');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const customCategories = docSnap.data()?.categories || [];
+          const unique = [...new Set([...baseCategories, ...customCategories])].sort((a, b) => a.localeCompare(b));
+          setCategories(unique);
+        } else {
+          setCategories(baseCategories);
+        }
       } catch (e) {
-        setBrands([]);
+        console.error("Error fetching categories:", e);
+        setCategories(baseCategories);
       }
     };
-    fetchBrands();
+    fetchCategories();
   }, []);
 
   // Helper to detect mobile
@@ -120,20 +126,20 @@ export default function Menu({ drawerOpen, setDrawerOpen }) {
                 {mobileCategoriesOpen && (
                   <div className="mahirash-mobile-accordion-panel">
                     <ul className="mahirash-mobile-brand-list">
-                      {brands.length > 0 ? (
-                        brands.slice(0, 15).map(brand => (
-                          <li key={brand}>
+                      {categories.length > 0 ? (
+                        categories.map(cat => (
+                          <li key={cat}>
                             <Link 
-                              to={`/category?brand=${encodeURIComponent(brand)}`} 
+                              to={`/category/${encodeURIComponent(cat)}`} 
                               className="mahirash-mobile-accordion-link"
                               onClick={() => setDrawerOpen(false)}
                             >
-                              {brand}
+                              {cat}
                             </Link>
                           </li>
                         ))
                       ) : (
-                        <li className="mahirash-mobile-accordion-link">No brands found</li>
+                        <li className="mahirash-mobile-accordion-link">No categories found</li>
                       )}
                       <li className="mahirash-mobile-divider"></li>
                       <li>
@@ -142,7 +148,7 @@ export default function Menu({ drawerOpen, setDrawerOpen }) {
                           className="mahirash-mobile-accordion-link all-brands"
                           onClick={() => setDrawerOpen(false)}
                         >
-                          View All Brands
+                          View All Categories
                         </Link>
                       </li>
                     </ul>
@@ -197,24 +203,24 @@ export default function Menu({ drawerOpen, setDrawerOpen }) {
                   onMouseLeave={() => setShowMegaMenu(false)}
                 >
                   <ul className="mahirash-dropdown-items">
-                    {brands.length > 0 ? (
-                      brands.slice(0, 15).map(brand => (
-                        <li key={brand} className="mahirash-dropdown-item">
+                    {categories.length > 0 ? (
+                      categories.map(cat => (
+                        <li key={cat} className="mahirash-dropdown-item">
                           <Link 
-                            to={`/category?brand=${encodeURIComponent(brand)}`} 
+                            to={`/category/${encodeURIComponent(cat)}`} 
                             className="mahirash-dropdown-link"
                           >
-                            {brand}
+                            {cat}
                           </Link>
                         </li>
                       ))
                     ) : (
-                      <li className="mahirash-dropdown-item">No brands found</li>
+                      <li className="mahirash-dropdown-item">No categories found</li>
                     )}
                     <li className="mahirash-dropdown-divider"></li>
                     <li className="mahirash-dropdown-item">
                       <Link to="/category" className="mahirash-dropdown-link all-brands">
-                        View All Brands
+                        View All Categories
                       </Link>
                     </li>
                   </ul>
@@ -234,23 +240,27 @@ export default function Menu({ drawerOpen, setDrawerOpen }) {
 export function BottomHeader() {
   const location = useLocation();
   const [showCategories, setShowCategories] = useState(false);
-  const [brands, setBrands] = useState([]);
+  const [categories, setCategories] = useState(baseCategories);
 
-  // Fetch unique brands for bottom sheet as well
+  // Fetch unique categories for bottom sheet as well
   useEffect(() => {
-    const fetchBrands = async () => {
+    const fetchCategories = async () => {
       try {
-        const snapshot = await getDocs(collection(db, 'products'));
-        const all = snapshot.docs
-          .map(d => (d.data()?.brand || '').toString().trim())
-          .filter(Boolean);
-        const unique = Array.from(new Set(all)).sort((a, b) => a.localeCompare(b));
-        setBrands(unique);
+        const docRef = doc(db, 'metadata', 'lists');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const customCategories = docSnap.data()?.categories || [];
+          const unique = [...new Set([...baseCategories, ...customCategories])].sort((a, b) => a.localeCompare(b));
+          setCategories(unique);
+        } else {
+          setCategories(baseCategories);
+        }
       } catch (e) {
-        setBrands([]);
+        console.error("Error fetching categories:", e);
+        setCategories(baseCategories);
       }
     };
-    fetchBrands();
+    fetchCategories();
   }, []);
 
   // Filter out 'Home' for mobile bottom header
@@ -285,25 +295,25 @@ const mobileNavLinks = navLinks.filter(link => link.label !== 'Home');
           )}
         </div>
       </div>
-      {/* Brands bottom sheet/expandable */}
+      {/* Categories bottom sheet/expandable */}
       {showCategories && (
         <div className="mahirash-bottom-categories-sheet" onClick={() => setShowCategories(false)}>
           <div className="mahirash-bottom-categories-sheet-inner" onClick={e => e.stopPropagation()}>
-            <h4>Brands</h4>
+            <h4>Categories</h4>
             <div className="mahirash-bottom-categories-list">
-              {/* Brands */}
-              {brands.length > 0 ? (
+              {/* Categories */}
+              {categories.length > 0 ? (
                 <div className="mahirash-bottom-category">
-                  <div className="mahirash-bottom-category-title">Popular Brands</div>
+                  <div className="mahirash-bottom-category-title">All Categories</div>
                   <ul>
-                    {brands.slice(0, 20).map(b => (
-                      <li key={b}>
+                    {categories.map(cat => (
+                      <li key={cat}>
                         <Link
-                          to={`/category?brand=${encodeURIComponent(b)}`}
+                          to={`/category/${encodeURIComponent(cat)}`}
                           className="mahirash-mobile-accordion-link"
                           onClick={() => setShowCategories(false)}
                         >
-                          {b}
+                          {cat}
                         </Link>
                       </li>
                     ))}
@@ -314,13 +324,13 @@ const mobileNavLinks = navLinks.filter(link => link.label !== 'Home');
                         className="mahirash-mobile-accordion-link all-brands"
                         onClick={() => setShowCategories(false)}
                       >
-                        View All Brands
+                        View All Categories
                       </Link>
                     </li>
                   </ul>
                 </div>
               ) : (
-                <p style={{ padding: '20px', textAlign: 'center' }}>No brands found</p>
+                <p style={{ padding: '20px', textAlign: 'center' }}>No categories found</p>
               )}
             </div>
             <button className="mahirash-bottom-categories-close" onClick={() => setShowCategories(false)}>&times;</button>

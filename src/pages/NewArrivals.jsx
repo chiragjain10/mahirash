@@ -6,7 +6,6 @@ import { useNavigate } from 'react-router-dom';
 import QuickView from '../components/QuickView';
 import WishlistButton from '../components/WishlistButton';
 import './newarrivals.css';
-import '../components/WishlistButton.css';
 
 function NewArrivalsPage() {
   const [products, setProducts] = useState([]);

@@ -1,16 +1,38 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import './BannerImg.css'
 
 function BannerImg() {
+  const [imageUrl, setImageUrl] = useState('images/15.png');
+
+  useEffect(() => {
+    const fetchImage = async () => {
+      try {
+        const docRef = doc(db, 'siteConfig', 'videos');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.exclusiveOfferImageUrl) {
+            setImageUrl(data.exclusiveOfferImageUrl);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching banner image:', error);
+      }
+    };
+    fetchImage();
+  }, []);
+
   return (
-    <section className="hero-wrapper">
+    <section className="max-w-[1400px] mx-auto hero-wrapper">
       <div className="hero-grid">
 
         {/* Image Side */}
         <div className="hero-media">
           <img
-            src="images/15.png"
+            src={imageUrl}
             alt="Mahirash Perfume"
             loading="lazy"
           />

@@ -1,67 +1,130 @@
 import React, { useState, useEffect, useRef } from 'react';
-import './VideoBanner.css';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { Swiper, SwiperSlide } from 'swiper/react';
+import { Autoplay, EffectFade, Navigation } from 'swiper/modules';
+import HeroSkeleton from './HeroSkeleton';
+
+// Styles
+import 'swiper/css';
+import 'swiper/css/effect-fade';
+import 'swiper/css/navigation';
 
 const HeroVideo = () => {
   const [isLoaded, setIsLoaded] = useState(false);
-  const [videoUrl, setVideoUrl] = useState(''); // no default
-  const videoRef = useRef(null);
+  const [videoUrls, setVideoUrls] = useState([]);
+  const videoRefs = useRef(new Map()); // Using a Map for cleaner ref management
 
   useEffect(() => {
-    if (videoRef.current && videoRef.current.readyState >= 3) {
-      setIsLoaded(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    // Load directly from Firestore - uploaded videos take priority
     const ref = doc(db, 'siteConfig', 'videos');
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        const data = snap.exists() ? snap.data() : {};
-        const nextUrl = data?.heroVideoUrl || '';
-        console.log('[Hero Video] Firestore data:', data);
-        console.log('[Hero Video] Setting URL to:', nextUrl);
-        setVideoUrl(nextUrl);
-      },
-      (error) => {
-        console.error('[Hero Video] Error loading from Firestore:', error);
-      }
-    );
+    const unsub = onSnapshot(ref, (snap) => {
+      const data = snap.exists() ? snap.data() : {};
+      const nextUrls = data?.heroVideoUrls || [];
+      setVideoUrls(nextUrls);
+    }, (error) => console.error('[Hero Video] Firestore Error:', error));
 
     return () => unsub();
   }, []);
 
-  if (!videoUrl) return null;
+  // Function to handle video playback on slide change
+  const handleSlideChange = (swiper) => {
+    const activeIndex = swiper.realIndex;
+    
+    // Play the current video, pause others
+    videoRefs.current.forEach((video, index) => {
+      if (index === activeIndex) {
+        video.play().catch(err => console.log("Autoplay blocked or interrupted"));
+      } else {
+        video.pause();
+      }
+    });
+  };
+
+  if (videoUrls.length === 0) return <HeroSkeleton />;
 
   return (
-    <section className={`premium-hero ${isLoaded ? 'is-visible' : ''}`}>
-      {/* The Grain Overlay adds a "film" texture to the video */}
-      <div className="film-grain"></div>
+    <div className="relative w-full">
+      {!isLoaded && <HeroSkeleton />}
       
-      {/* The Vignette creates depth around the edges */}
-      <div className="vignette"></div>
+      <section className={`premium-hero ${isLoaded ? 'is-visible' : 'is-hidden'}`}>
+        <div className="film-grain"></div>
+        <div className="vignette"></div>
 
-      <div className="video-frame">
-        <video
-          key={videoUrl}
-          ref={videoRef}
-          className="hero-video-element"
-          autoPlay
-          loop
-          muted
-          playsInline
-          onLoadedData={() => setIsLoaded(true)}
-          src={videoUrl}
-        />
-      </div>
+        <div className="video-frame">
+          <Swiper
+            modules={[Autoplay, EffectFade, Navigation]}
+            effect="fade"
+            speed={1000} // Smoother transition
+            autoplay={{
+              delay: 6000,
+              disableOnInteraction: false,
+            }}
+            loop={videoUrls.length > 1}
+            navigation={videoUrls.length > 1}
+            onSlideChange={handleSlideChange}
+            className="h-full w-full"
+          >
+            {videoUrls.map((url, index) => (
+              <SwiperSlide key={url}>
+                <video
+                  ref={(el) => {
+                    if (el) videoRefs.current.set(index, el);
+                    else videoRefs.current.delete(index);
+                  }}
+                  className="hero-video-element"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="metadata"
+                  onLoadedData={() => {
+                    if (index === 0) setIsLoaded(true);
+                  }}
+                  src={url}
+                />
+              </SwiperSlide>
+            ))}
+          </Swiper>
+        </div>
 
-      {/* Minimalist edge accent */}
-      <div className="edge-accent top"></div>
-      <div className="edge-accent bottom"></div>
-    </section>
+        <div className="edge-accent top"></div>
+        <div className="edge-accent bottom"></div>
+
+        <style jsx>{`
+          .premium-hero {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            background: #000;
+            transition: opacity 1s ease-in-out;
+          }
+          .is-hidden { opacity: 0; }
+          .is-visible { opacity: 1; }
+          
+          .video-frame {
+            width: 100%;
+            height: 100%;
+          }
+          .hero-video-element {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+          }
+          
+          /* Ensuring Swiper buttons are visible over the video */
+          :global(.swiper-button-next),
+          :global(.swiper-button-prev) {
+            color: #fff !important;
+            filter: drop-shadow(0 0 10px rgba(0,0,0,0.5));
+          }
+
+          @media (max-width: 768px) {
+            .premium-hero { height: 70vh; }
+          }
+        `}</style>
+      </section>
+    </div>
   );
 };
 

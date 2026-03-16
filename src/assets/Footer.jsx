@@ -7,7 +7,7 @@ function Footer() {
         <div id="wrapper">
           <footer className="tf-footer">
             <div className="footer-body p-xl-0">
-              <div className="container-full-2">
+              <div className="container-full-2 max-w-[1400px] mx-auto">
                 <div className="row-footer">
                   <div className="col-s1">
                     <div className="footer-inner-wrap flex-lg-nowrap align-items-end">

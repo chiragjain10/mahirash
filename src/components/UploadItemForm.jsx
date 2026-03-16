@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { db } from './firebase';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, updateDoc, arrayUnion, setDoc } from 'firebase/firestore';
 import axios from 'axios';
+import { useEffect } from 'react';
 
 const genderOptions = ['men', 'women', 'unisex'];
-const perfumeNotes = ['Woody', 'Citrus', 'Flower', 'Aromatic', 'Custom'];
+const basePerfumeNotes = ['Woody', 'Citrus', 'Flower', 'Aromatic'];
 
-const UploadItemForm = ({ onUploadSuccess }) => {
+const UploadItemForm = ({ onUploadSuccess, editProduct }) => {
   const [isUploading, setIsUploading] = useState(false);
+  const [customLists, setCustomLists] = useState({ brands: [], categories: [], notes: [] });
   const [formData, setFormData] = useState({
     name: '',
     brand: '',
@@ -24,10 +26,28 @@ const UploadItemForm = ({ onUploadSuccess }) => {
     isPreOrder: false,
   });
   const [sizes, setSizes] = useState([
-    { size: '', brand: '', price: '', oldPrice: '', customSize: '', stock: 0, imagesFiles: [], imagesPreview: [] }
+    { size: '', brand: '', price: '', oldPrice: '', customSize: '', stock: 0, isPreOrder: false, imagesFiles: [], imagesPreview: [] }
   ]);
 
-  const brands = [
+  useEffect(() => {
+    const fetchCustomLists = async () => {
+      try {
+        const docRef = doc(db, 'metadata', 'lists');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setCustomLists(docSnap.data());
+        } else {
+          // Initialize if it doesn't exist
+          await setDoc(docRef, { brands: [], categories: [], notes: [] });
+        }
+      } catch (error) {
+        console.error('Error fetching custom lists:', error);
+      }
+    };
+    fetchCustomLists();
+  }, []);
+
+  const baseBrands = [
      "ACQUA DI PARMA",
     "AFNAN",
     "AJMAL",
@@ -127,6 +147,60 @@ const UploadItemForm = ({ onUploadSuccess }) => {
     "YVES SAINT LAURENT"
   ];
 
+  // Merge base lists with custom lists
+  const brands = [...new Set([...baseBrands, ...(customLists.brands || [])])].sort();
+  const categoriesList = [...new Set(['Designer', 'Middle eastern', 'niche', 'Vials', 'Gift sets', 'Combo', ...(customLists.categories || [])])];
+  const perfumeNotes = [...new Set([...basePerfumeNotes, ...(customLists.notes || []), 'Custom'])];
+
+  useEffect(() => {
+    if (editProduct) {
+      // Handle Brand
+      const isBaseBrand = baseBrands.includes(editProduct.brand);
+      const isCustomBrandInList = customLists.brands?.includes(editProduct.brand);
+      const brandValue = (isBaseBrand || isCustomBrandInList) ? editProduct.brand : 'custom';
+      const customBrandValue = brandValue === 'custom' ? editProduct.brand : '';
+
+      // Handle Category (Badge)
+      const baseCategories = ['Designer', 'Middle eastern', 'niche', 'Vials', 'Gift sets', 'Combo'];
+      const isBaseCategory = baseCategories.includes(editProduct.badge);
+      const isCustomCategoryInList = customLists.categories?.includes(editProduct.badge);
+      const badgeValue = (isBaseCategory || isCustomCategoryInList) ? editProduct.badge : 'custom';
+      const customBadgeValue = badgeValue === 'custom' ? editProduct.badge : '';
+
+      // Handle Note
+      const isBaseNote = basePerfumeNotes.includes(editProduct.note);
+      const isCustomNoteInList = customLists.notes?.includes(editProduct.note);
+      const noteValue = (isBaseNote || isCustomNoteInList) ? editProduct.note : 'Custom';
+      const customNoteValue = noteValue === 'Custom' ? editProduct.note : '';
+
+      setFormData({
+        name: editProduct.name || '',
+        brand: brandValue || '',
+        customBrand: customBrandValue,
+        data: editProduct.data || '',
+        badge: badgeValue || '',
+        customBadge: customBadgeValue,
+        isOutOfStock: editProduct.isOutOfStock || false,
+        tags: editProduct.tags || [],
+        gender: Array.isArray(editProduct.gender) ? editProduct.gender : (editProduct.gender ? [editProduct.gender] : []),
+        note: noteValue || '',
+        customNote: customNoteValue,
+        isAdminLogin: editProduct.isAdminLogin || false,
+        isPreOrder: editProduct.isPreOrder || false,
+      });
+
+      if (editProduct.sizes && Array.isArray(editProduct.sizes)) {
+        setSizes(editProduct.sizes.map(s => ({
+          ...s,
+          customSize: '',
+          isPreOrder: !!s.isPreOrder,
+          imagesFiles: s.images || [],
+          imagesPreview: s.images || []
+        })));
+      }
+    }
+  }, [editProduct, customLists]);
+
   const handleChange = (e) => {
     const { name, type, value, checked } = e.target;
     setFormData(prev => {
@@ -199,7 +273,7 @@ const UploadItemForm = ({ onUploadSuccess }) => {
   };
 
   const addMoreSizes = () => {
-    setSizes(prev => [...prev, { size: '', price: '', oldPrice: '', customSize: '', stock: formData.isPreOrder ? 999 : 0, imagesFiles: [], imagesPreview: [] }]);
+    setSizes(prev => [...prev, { size: '', price: '', oldPrice: '', customSize: '', stock: 0, isPreOrder: false, imagesFiles: [], imagesPreview: [] }]);
   };
 
   const uploadToCloudinary = async (file) => {
@@ -219,13 +293,13 @@ const UploadItemForm = ({ onUploadSuccess }) => {
       if (selectedGenders.includes('unisex')) finalGender = 'unisex';
       else if (selectedGenders.length === 1) finalGender = selectedGenders[0].toLowerCase();
 
-      const finalBrand = formData.brand === 'custom' ? formData.customBrand : formData.brand;
+      const finalBrand = formData.brand === 'custom' ? formData.customBrand.trim().toUpperCase() : formData.brand;
       if (formData.brand === 'custom' && !formData.customBrand.trim()) throw new Error('Enter a brand name.');
 
-      const finalBadge = formData.badge === 'custom' ? formData.customBadge : formData.badge;
+      const finalBadge = formData.badge === 'custom' ? formData.customBadge.trim() : formData.badge;
       if (formData.badge === 'custom' && !formData.customBadge.trim()) throw new Error('Enter a category name.');
 
-      const finalNote = formData.note === 'Custom' ? formData.customNote : formData.note;
+      const finalNote = formData.note === 'Custom' ? formData.customNote.trim() : formData.note;
       if (formData.note === 'Custom' && !formData.customNote.trim()) throw new Error('Enter a custom note.');
 
       const preparedSizes = [];
@@ -240,32 +314,63 @@ const UploadItemForm = ({ onUploadSuccess }) => {
           uploadedUrls.push(url);
         }
         
-        // If pre-order, set a high stock and ensure it's not out of stock
-        const numericStock = formData.isPreOrder ? 999 : Number(s.stock || 0);
+        // If size is pre-order, set a high stock and ensure it's not out of stock
+        const isSizePreOrder = !!s.isPreOrder;
+        const numericStock = isSizePreOrder ? 999 : Number(s.stock || 0);
         preparedSizes.push({
           size: finalSize, price: s.price, oldPrice: s.oldPrice || '',
           stock: isNaN(numericStock) ? 0 : numericStock, images: uploadedUrls,
-          isOutOfStock: formData.isPreOrder ? false : (numericStock <= 0)
+          isPreOrder: isSizePreOrder,
+          isOutOfStock: isSizePreOrder ? false : (numericStock <= 0)
         });
       }
 
       if (preparedSizes.length === 0) throw new Error('Add at least one valid size.');
 
       const derivedProductOutOfStock = preparedSizes.every(sz => (sz.isOutOfStock || (Number(sz.stock || 0) <= 0)));
+      const anySizePreOrder = preparedSizes.some(sz => sz.isPreOrder);
 
-      await addDoc(collection(db, 'products'), {
+      const finalPayload = {
         ...formData,
         brand: finalBrand,
         badge: finalBadge,
         isOutOfStock: derivedProductOutOfStock,
+        isPreOrder: anySizePreOrder, // Keep top-level for backwards compatibility and easy filtering
         gender: finalGender,
         sizes: preparedSizes,
         note: finalNote,
-      });
+      };
 
-      alert('Product uploaded successfully!');
-      setFormData({ name: '', brand: '', customBrand: '', data: '', badge: '', customBadge: '', isOutOfStock: false, tags: [], gender: [], note: '', customNote: '' });
-      setSizes([{ size: '', price: '', oldPrice: '', customSize: '', stock: 0, imagesFiles: [], imagesPreview: [] }]);
+      if (editProduct && editProduct.id) {
+        // Update existing product
+        await setDoc(doc(db, 'products', editProduct.id), finalPayload, { merge: true });
+      } else {
+        // Add new product
+        await addDoc(collection(db, 'products'), finalPayload);
+      }
+
+      // Update custom lists in Firestore
+      const docRef = doc(db, 'metadata', 'lists');
+      const updates = {};
+      if (formData.brand === 'custom') updates.brands = arrayUnion(finalBrand);
+      if (formData.badge === 'custom') updates.categories = arrayUnion(finalBadge);
+      if (formData.note === 'Custom') updates.notes = arrayUnion(finalNote);
+
+      if (Object.keys(updates).length > 0) {
+        await setDoc(docRef, updates, { merge: true });
+        // Refresh local state
+        setCustomLists(prev => ({
+          brands: formData.brand === 'custom' ? [...new Set([...prev.brands, finalBrand])] : prev.brands,
+          categories: formData.badge === 'custom' ? [...new Set([...prev.categories, finalBadge])] : prev.categories,
+          notes: formData.note === 'Custom' ? [...new Set([...prev.notes, finalNote])] : prev.notes,
+        }));
+      }
+
+      alert(editProduct ? 'Product updated successfully!' : 'Product uploaded successfully!');
+      if (!editProduct) {
+        setFormData({ name: '', brand: '', customBrand: '', data: '', badge: '', customBadge: '', isOutOfStock: false, tags: [], gender: [], note: '', customNote: '' });
+        setSizes([{ size: '', price: '', oldPrice: '', customSize: '', stock: 0, imagesFiles: [], imagesPreview: [] }]);
+      }
       if (onUploadSuccess) onUploadSuccess();
     } catch (error) {
       console.error(error);
@@ -279,7 +384,7 @@ const UploadItemForm = ({ onUploadSuccess }) => {
     <div className="max-w-5xl mx-auto bg-white rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-neutral-100">
       <div className="bg-neutral-900 py-10 px-6 text-center">
         <h3 className="text-white text-3xl font-light tracking-widest uppercase font-serif">
-          New Acquisition
+          {editProduct ? 'Edit Acquisition' : 'New Acquisition'}
         </h3>
         <p className="text-neutral-400 text-xs mt-2 tracking-widest uppercase">Inventory Management Portal</p>
       </div>
@@ -296,6 +401,7 @@ const UploadItemForm = ({ onUploadSuccess }) => {
               <label className="text-[10px] font-bold tracking-[0.2em] text-neutral-500 uppercase">Product Name</label>
               <input
                 name="name"
+                value={formData.name}
                 placeholder="e.g. Ombre Nomade"
                 className="w-full bg-neutral-50 border-none rounded-xl p-4 text-neutral-800 placeholder:text-neutral-300 focus:ring-2 focus:ring-neutral-900 transition-all outline-none"
                 onChange={handleChange}
@@ -377,12 +483,7 @@ const UploadItemForm = ({ onUploadSuccess }) => {
                   required
                 >
                   <option value="">Select Category</option>
-                  <option value="Designer">Designer</option>
-                  <option value="Middle eastern">Middle eastern</option>
-                  <option value="niche">niche</option>
-                  <option value="Vials">Vials</option>
-                  <option value="Gift sets">Gift sets</option>
-                  <option value="Combo">Combo</option>
+                  {categoriesList.map(c => <option key={c} value={c}>{c}</option>)}
                   <option value="custom">custom</option>
                 </select>
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-neutral-400 group-focus-within:text-neutral-900 transition-colors">
@@ -463,7 +564,7 @@ const UploadItemForm = ({ onUploadSuccess }) => {
                       onChange={e => handleSizeChange(idx, 'oldPrice', e.target.value)}
                     />
                   </div>
-                  {!formData.isPreOrder && (
+                  {!sz.isPreOrder && (
                     <div className="flex flex-col gap-2">
                       <label className="text-[10px] font-bold text-neutral-400 uppercase">Stock Units</label>
                       <input
@@ -475,6 +576,17 @@ const UploadItemForm = ({ onUploadSuccess }) => {
                       />
                     </div>
                   )}
+                  <div className="flex flex-col gap-2 justify-center">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!sz.isPreOrder}
+                        onChange={e => handleSizeChange(idx, 'isPreOrder', e.target.checked)}
+                        className="w-4 h-4 accent-neutral-900 rounded"
+                      />
+                      <span className="text-[10px] font-bold text-neutral-400 uppercase">Pre-Order</span>
+                    </label>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -528,22 +640,6 @@ const UploadItemForm = ({ onUploadSuccess }) => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
             <div className="space-y-6">
               <div className="flex flex-col gap-4">
-                <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">Order Type</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      name="isPreOrder"
-                      className="w-5 h-5 accent-neutral-900 rounded"
-                      checked={formData.isPreOrder}
-                      onChange={handleChange}
-                    />
-                    <span className="text-xs uppercase tracking-tighter text-neutral-600 group-hover:text-black transition-colors">Pre-Order Item</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-4">
                 <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">Gender Target</label>
                 <div className="flex gap-4">
                   {genderOptions.map(g => (
@@ -588,6 +684,7 @@ const UploadItemForm = ({ onUploadSuccess }) => {
                 <textarea
                   name="data"
                   rows="5"
+                  value={formData.data}
                   placeholder="Describe the aromatic experience..."
                   className="w-full bg-neutral-50 border-none rounded-xl p-4 text-neutral-800 focus:ring-2 focus:ring-neutral-900 outline-none resize-none"
                   onChange={handleChange}
@@ -618,7 +715,7 @@ const UploadItemForm = ({ onUploadSuccess }) => {
               </>
             ) : (
               <>
-                <span>Add Product</span>
+                <span>{editProduct ? 'Update Product' : 'Add Product'}</span>
                 <i className="fas fa-arrow-right text-[10px] opacity-50 group-hover:translate-x-1 transition-transform"></i>
               </>
             )}

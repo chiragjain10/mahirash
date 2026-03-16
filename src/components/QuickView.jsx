@@ -1,103 +1,112 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useCart } from '../context/CartContext';
 import { usePreloader } from '../context/PreloaderContext';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import WishlistButton from './WishlistButton';
+import { MdShoppingCart, MdAdd, MdRemove, MdClose, MdFlashOn } from 'react-icons/md';
 
 function QuickView({ product, onClose }) {
     const { addToCart, isInCart } = useCart();
-    const { showPreloader, hidePreloader } = usePreloader();
+    const { user } = useAuth();
+    const navigate = useNavigate();
     const [selectedImage, setSelectedImage] = useState('');
     const [quantity, setQuantity] = useState(1);
-    const [showToast, setShowToast] = useState(false);
     const [buttonLoading, setButtonLoading] = useState(false);
+    const [buyNowLoading, setBuyNowLoading] = useState(false);
     const [selectedSizeIdx, setSelectedSizeIdx] = useState(0);
 
-    if (!product) return null;
-    const MAX_DESCRIPTION_CHARS = 400;
-    const truncateDescription = (text) => {
-        if (!text) return '';
-        const normalized = text.replace(/\s+/g, ' ').trim();
-        if (normalized.length <= MAX_DESCRIPTION_CHARS) {
-            return normalized;
-        }
-        const shortened = normalized.slice(0, MAX_DESCRIPTION_CHARS);
-        const lastPeriod = shortened.lastIndexOf('.');
-        if (lastPeriod > MAX_DESCRIPTION_CHARS - 120) {
-            return shortened.slice(0, lastPeriod + 1);
-        }
-        return `${shortened}…`;
-    };
-    const truncatedDescription = truncateDescription(product?.data || '');
-    const shouldTruncate = !!product?.data && truncatedDescription.length < product.data.replace(/\s+/g, ' ').trim().length;
-
-    const formatPrice = (price) => {
-        const num = typeof price === 'string' ? parseFloat(price) : price;
-        return isNaN(num) ? '0.00' : num.toFixed(2);
-    };
+    // Prevent body scroll when modal is open
     useEffect(() => {
         document.body.style.overflow = 'hidden';
         return () => { document.body.style.overflow = 'auto'; };
     }, []);
 
-    const getSizesArray = () => Array.isArray(product.sizes) && product.sizes.length > 0
-        ? product.sizes
-        : [{
-            size: product.size || '',
-            price: product.price,
-            oldPrice: product.oldPrice,
-            images: [product.image, product.hoverImage, product.image3, product.image4].filter(Boolean),
-            isOutOfStock: !!product.isOutOfStock
-        }];
-    const sizesArr = getSizesArray().map(sz => ({
-        ...sz,
-        isOutOfStock: !!sz.isOutOfStock
-    }));
-    // Only prioritize 10ml if product is from BannerFresh section, otherwise default to 50ml
-    let finalDefaultIdx;
-    if (product.fromBannerFresh) {
-        // For BannerFresh products, prioritize 10ml
-        const defaultIdx = sizesArr.findIndex(s => (s && s.size) === '10ml');
-        const fallbackIdx = sizesArr.findIndex(s => (s && s.size) === '50ml');
-        finalDefaultIdx = defaultIdx >= 0 ? defaultIdx : (fallbackIdx >= 0 ? fallbackIdx : 0);
-    } else {
-        // For other products, default to 50ml as before
-        const defaultIdx = sizesArr.findIndex(s => (s && s.size) === '50ml');
-        finalDefaultIdx = defaultIdx >= 0 ? defaultIdx : 0;
-    }
+    // Handle Escape key to close
+    useEffect(() => {
+        const handleEscape = (e) => {
+            if (e.key === 'Escape') onClose();
+        };
+        document.addEventListener('keydown', handleEscape);
+        return () => document.removeEventListener('keydown', handleEscape);
+    }, [onClose]);
 
-    const computePreferredIdx = () => {
-        if (sizesArr[finalDefaultIdx] && !sizesArr[finalDefaultIdx].isOutOfStock) return finalDefaultIdx;
-        const firstAvailable = sizesArr.findIndex(sz => !sz.isOutOfStock);
-        return firstAvailable !== -1 ? firstAvailable : finalDefaultIdx;
-    };
-    const preferredIdx = computePreferredIdx();
-    const isPreOrder = !!product?.isPreOrder;
+    if (!product) return null;
+
+    const sizesArr = useMemo(() => {
+        const p = product;
+        const baseSizes = Array.isArray(p.sizes) && p.sizes.length > 0
+            ? p.sizes
+            : [{
+                size: p.size || 'Standard',
+                price: p.price || 0,
+                oldPrice: p.oldPrice || '',
+                images: [p.image, p.hoverImage, p.image3, p.image4].filter(Boolean),
+                stock: p.stock,
+                isOutOfStock: !!p.isOutOfStock
+            }];
+
+        return baseSizes.map(sz => ({
+            ...sz,
+            isOutOfStock: (Number(sz.stock) <= 0 && sz.stock !== undefined) || !!sz.isOutOfStock
+        }));
+    }, [product]);
+
+    // Priority logic for default size
+    const preferredIdx = useMemo(() => {
+        let idx = -1;
+        if (product.fromBannerFresh) {
+            idx = sizesArr.findIndex(s => s.size === '10ml');
+            if (idx === -1) idx = sizesArr.findIndex(s => s.size === '50ml');
+        } else {
+            idx = sizesArr.findIndex(s => s.size === '50ml');
+        }
+        
+        if (idx === -1 || sizesArr[idx]?.isOutOfStock) {
+            const firstIn = sizesArr.findIndex(s => !s.isOutOfStock);
+            return firstIn !== -1 ? firstIn : 0;
+        }
+        return idx;
+    }, [sizesArr, product.fromBannerFresh]);
 
     useEffect(() => {
         setSelectedSizeIdx(preferredIdx);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [product?.id, preferredIdx]);
-    const selectedSize = sizesArr[selectedSizeIdx] || sizesArr[preferredIdx] || sizesArr[0];
-    const isSelectedSizeOut = !isPreOrder && !!selectedSize?.isOutOfStock;
+    }, [preferredIdx]);
 
-    // Build current images from the selected size, fallback to legacy
-    const currentImages = Array.isArray(selectedSize?.images) && selectedSize.images.length > 0
-        ? selectedSize.images
-        : [product.image, product.hoverImage, product.image3, product.image4].filter(Boolean);
+    const selectedSize = sizesArr[selectedSizeIdx] || sizesArr[0];
+    const isPreOrder = !!selectedSize?.isPreOrder;
+    const isSelectedSizeOut = !isPreOrder && !!selectedSize?.isOutOfStock;
+    const isAlreadyInCart = isInCart(product.id, selectedSize.size);
+
+    const productImages = useMemo(() => {
+        return Array.isArray(selectedSize?.images) && selectedSize.images.length > 0
+            ? selectedSize.images
+            : [product.image, product.hoverImage, product.image3, product.image4].filter(Boolean);
+    }, [selectedSize, product]);
 
     useEffect(() => {
-        setSelectedImage(currentImages[0] || '');
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedSizeIdx]);
+        setSelectedImage(productImages[0] || '');
+    }, [productImages]);
 
-    const isAlreadyInCart = isInCart(product.id, selectedSize.size);
+    const formatPrice = (price) => {
+        const num = typeof price === 'string' ? parseFloat(price) : price;
+        return isNaN(num) ? '0.00' : num.toLocaleString('en-IN', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+    };
+
+    const handleQuantityChange = (delta) => {
+        setQuantity((prev) => {
+            const stockVal = selectedSize?.stock != null ? Number(selectedSize.stock) : Infinity;
+            return Math.min(stockVal, Math.max(1, prev + delta));
+        });
+    };
 
     const handleAddToCart = async () => {
         if (isPreOrder) {
             const phoneNumber = '919584826112';
-            const productName = product?.name || 'product';
-            const sizeLabel = selectedSize?.size ? ` (${selectedSize.size})` : '';
-            const message = `Hi! I'm interested in Pre-ordering the "${productName}${sizeLabel}" from Quick View. Please let me know how to proceed.`;
+            const message = `Hi! I'm interested in Pre-ordering "${product.name}" (${selectedSize.size}).`;
             window.open(`https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`, '_blank');
             return;
         }
@@ -107,1017 +116,214 @@ function QuickView({ product, onClose }) {
         addToCart({ ...product, quantity, selectedSize });
         setButtonLoading(false);
         const offcanvas = document.getElementById('shoppingCart');
-        const bsOffcanvas = new window.bootstrap.Offcanvas(offcanvas);
-        bsOffcanvas.show();
+        if (offcanvas && window.bootstrap) {
+            const bsOffcanvas = new window.bootstrap.Offcanvas(offcanvas);
+            bsOffcanvas.show();
+        }
     };
 
-    const handleQuantityChange = (delta) => {
-        setQuantity((prev) => Math.max(1, prev + delta));
-    };
+    const handleBuyNow = useCallback(async () => {
+        if (isPreOrder) {
+            const phoneNumber = '919584826112';
+            const productName = product?.name || 'product';
+            const sizeLabel = selectedSize?.size ? ` (${selectedSize.size})` : '';
+            const message = `Hi! I'm interested in Pre-ordering the "${productName}${sizeLabel}". Please let me know how to proceed.`;
+            window.open(`https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`, '_blank');
+            return;
+        }
+        if (isSelectedSizeOut) return;
 
-    const handleQuantityInput = (e) => {
-        const value = parseInt(e.target.value) || 1;
-        setQuantity(Math.max(1, value));
-    };
+        if (!user) {
+            navigate('/login', { state: { from: `/product/${product.id}` } });
+            onClose();
+            return;
+        }
 
-    useEffect(() => {
-        const handleEscape = (e) => {
-            if (e.key === 'Escape') onClose();
-        };
-        document.addEventListener('keydown', handleEscape);
-        return () => document.removeEventListener('keydown', handleEscape);
-    }, [onClose]);
+        setBuyNowLoading(true);
+        navigate('/checkout', {
+            state: {
+                buyNowItem: {
+                    ...product,
+                    quantity,
+                    selectedSize,
+                    cartItemId: `buynow-${Date.now()}`
+                }
+            }
+        });
+        onClose();
+    }, [isPreOrder, isSelectedSizeOut, user, navigate, product, quantity, selectedSize, onClose]);
+
+    const MAX_CHARS = 240;
+    const truncatedDesc = product.data && product.data.length > MAX_CHARS 
+        ? product.data.substring(0, MAX_CHARS) + '...' 
+        : product.data;
 
     return (
-        <>
-            {/* Premium Backdrop */}
-            <div
-                className="qv-backdrop"
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 md:p-6 antialiased">
+            {/* Backdrop */}
+            <div 
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-500" 
                 onClick={onClose}
             />
 
             {/* Modal Container */}
-            <div className="qv-modal">
-                <div className="qv-dialog">
-                    <div className="qv-content">
-                        {/* Close Button */}
-                        <button
-                            type="button"
-                            className="qv-close-btn"
-                            onClick={onClose}
-                        >
-                            ×
-                        </button>
+            <div className="relative w-full max-w-5xl bg-white rounded-[32px] md:rounded-[48px] shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh] animate-in fade-in zoom-in duration-300">
+                
+                {/* Close Button */}
+                <button 
+                    onClick={onClose}
+                    className="absolute top-6 right-6 z-10 w-10 h-10 bg-white/80 backdrop-blur-md rounded-full flex items-center justify-center text-neutral-900 hover:bg-[#640d14] hover:text-white transition-all duration-300 shadow-lg"
+                >
+                    <MdClose size={24} />
+                </button>
 
-                        <div className="qv-body">
-                            <div className="qv-layout">
-                                {/* Image Section */}
-                                <div className="qv-gallery">
-                                    <div className="qv-image-container">
-                                        {/* Main Image */}
-                                        <div className="qv-main-image">
-                                            <img
-                                                src={selectedImage}
-                                                alt={product.name}
-                                                className="qv-product-image"
-                                            />
-                                        </div>
-
-                                        {/* Badge */}
-                                        {product.badge && (
-                                            <div className="qv-badge">
-                                                <span className={`qv-badge-text ${product.badge.includes('NEW') ? 'new' : 'sale'}`}>
-                                                    {product.badge}
-                                                </span>
-                                            </div>
-                                        )}
-
-                                        {/* Image Navigation */}
-                                        <div className="qv-nav-dots">
-                                            {currentImages.map((img, idx) => (
-                                                <button
-                                                    key={idx}
-                                                    onClick={() => setSelectedImage(img)}
-                                                    className={`qv-nav-dot ${selectedImage === img ? 'active' : ''}`}
-                                                />
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Thumbnails */}
-                                    <div className="qv-thumbnails">
-                                        {currentImages.map((img, idx) => (
-                                            <button
-                                                key={idx}
-                                                onClick={() => setSelectedImage(img)}
-                                                className={`qv-thumbnail ${selectedImage === img ? 'active' : ''}`}
-                                            >
-                                                <img
-                                                    src={img}
-                                                    alt="thumb"
-                                                    className="qv-thumbnail-img"
-                                                />
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Details Section */}
-                                <div className="qv-details">
-                                    <div className="qv-content-wrapper">
-                                        {/* Title */}
-                                        <div className="qv-header">
-                                            <h1 className="qv-title">{product.brand}</h1>
-                                            <h1 className="qv-title">{product.name}</h1>
-                                        </div>
-
-                                        {/* Price */}
-                                        <div className="qv-price">
-                                            <span className="qv-current-price">₹{formatPrice(selectedSize.price)}</span>
-                                            {selectedSize.oldPrice && (
-                                                <span className="qv-old-price">₹{formatPrice(selectedSize.oldPrice)}</span>
-                                            )}
-                                        </div>
-
-                                        {/* Sizes */}
-                                        {sizesArr.length > 1 && (
-                                            <div className="qv-sizes">
-                                                <h3 className="qv-sizes-title">Select Size</h3>
-                                                <div className="qv-size-grid">
-                                                    {sizesArr.map((sz, idx) => (
-                                                        <button
-                                                            key={idx}
-                                                            onClick={() => setSelectedSizeIdx(idx)}
-                                                className={`qv-size-btn ${selectedSizeIdx === idx ? 'active' : ''} ${sz.isOutOfStock ? 'disabled' : ''}`}
-                                                disabled={sz.isOutOfStock}
-                                                        >
-                                                            <span className="qv-size-name">{sz.size}</span>
-                                                            {sz.price && (
-                                                                <span className="qv-size-price">₹{formatPrice(sz.price)}</span>
-                                                            )}
-                                                {sz.isOutOfStock && (
-                                                    <span className="qv-size-status">Out of Stock</span>
-                                                            )}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Quantity */}
-                                        <div className="qv-quantity">
-                                            <label>Quantity</label>
-                                            <div className="qv-quantity-controls">
-                                                <button
-                                                    onClick={() => handleQuantityChange(-1)}
-                                                    className="qv-qty-btn"
-                                                    disabled={quantity <= 1}
-                                                >
-                                                    −
-                                                </button>
-                                                <input
-                                                    type="number"
-                                                    value={quantity}
-                                                    onChange={handleQuantityInput}
-                                                    min="1"
-                                                    className="qv-qty-input"
-                                                />
-                                                <button
-                                                    onClick={() => handleQuantityChange(1)}
-                                                    className="qv-qty-btn"
-                                                >
-                                                    +
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        {/* Description */}
-                                        {product.data && (
-                                            <div className="qv-description">
-                                                <h3>Description</h3>
-                                                <p style={{ whiteSpace: "pre-line" }}>
-                                                    {truncatedDescription || 'No description available.'}
-                                                </p>
-                                                {shouldTruncate && (
-                                                    <button
-                                                        type="button"
-                                                        className="qv-read-more"
-                                                        onClick={() => {
-                                                            onClose();
-                                                            if (product.id) {
-                                                                window.location.href = `/product/${product.id}`;
-                                                            }
-                                                        }}
-                                                    >
-                                                        Read More
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        {/* Wishlist and Add to Cart */}
-                                        <div className="qv-actions">
-                                            <WishlistButton
-                                                product={product}
-                                                size="large"
-                                                showText={true}
-                                                className="qv-wishlist-btn"
-                                            />
-                                            <button
-                                                onClick={handleAddToCart}
-                                                disabled={(!isPreOrder && (isSelectedSizeOut || isAlreadyInCart)) || buttonLoading}
-                                                className={`tf-btn btn-fill animate-btn type-large text-uppercase text-decoration-none ${isPreOrder ? '!bg-amber-600 !border-amber-600' : ''}`}
-                                            >
-                                                {isPreOrder ? (
-                                                    <span className="flex items-center gap-2">
-                                                        <i className="fab fa-whatsapp"></i>
-                                                        Pre-Order on WhatsApp
-                                                    </span>
-                                                ) : isSelectedSizeOut ? (
-                                                    'Out of Stock'
-                                                ) : isAlreadyInCart ? (
-                                                    'Added to Cart'
-                                                ) : buttonLoading ? (
-                                                    <>
-                                                        <span className="qv-spinner"></span>
-                                                        Adding...
-                                                    </>
-                                                ) : (
-                                                    `Add to Cart — ₹${formatPrice(selectedSize.price * quantity)}`
-                                                )}
-                                            </button>
-                                        </div>
-                                    </div>
+                {/* Left: Image Gallery */}
+                <div className="w-full md:w-1/2 bg-[#fdfdfd] p-8 md:p-12 flex flex-col items-center justify-center relative border-b md:border-b-0 md:border-r border-neutral-100">
+                    <div className="relative w-full aspect-square flex items-center justify-center group">
+                        <img 
+                            src={selectedImage} 
+                            alt={product.name} 
+                            className={`w-full h-full object-contain transition-all duration-700 group-hover:scale-105 ${isSelectedSizeOut ? 'grayscale opacity-40' : ''}`}
+                        />
+                        {product.badge && (
+                            <div className="absolute top-0 left-0">
+                                <div className="px-6 py-2 bg-[#640d14] text-white text-[9px] font-black uppercase tracking-[0.4em] rounded-full shadow-lg">
+                                    {product.badge}
                                 </div>
                             </div>
+                        )}
+                    </div>
+
+                    {/* Thumbnails */}
+                    {productImages.length > 1 && (
+                        <div className="flex gap-4 mt-8 overflow-x-auto no-scrollbar pb-2">
+                            {productImages.map((img, idx) => (
+                                <button
+                                    key={idx}
+                                    onClick={() => setSelectedImage(img)}
+                                    className={`w-20 h-20 rounded-[24px] overflow-hidden border transition-all duration-500 flex-shrink-0 ${selectedImage === img ? 'border-[#640d14] ring-4 ring-[#640d14]/5 scale-105 shadow-md' : 'border-neutral-100 opacity-60 hover:opacity-100'}`}
+                                >
+                                    <img src={img} alt="thumb" className="w-full h-full object-contain p-3" />
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Right: Details Section */}
+                <div className="w-full md:w-1/2 p-8 md:p-12 overflow-y-auto no-scrollbar flex flex-col">
+                    <div className="space-y-8">
+                        {/* Brand & Name */}
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-3">
+                                <span className="text-[11px] font-bold text-[#640d14] uppercase tracking-[0.45em]">{product.brand}</span>
+                                {product.note && (
+                                    <>
+                                        <div className="w-px h-3 bg-neutral-200" />
+                                        <span className="text-[9px] uppercase tracking-[0.3em] text-neutral-400 italic">{product.note} Essence</span>
+                                    </>
+                                )}
+                            </div>
+                            <h2 className="text-3xl md:text-4xl font-serif text-neutral-900 uppercase tracking-tight leading-tight">{product.name}</h2>
+                            <div className="flex items-baseline gap-5">
+                                <span className="text-3xl font-light italic text-neutral-900">₹{formatPrice(selectedSize.price)}</span>
+                                {selectedSize.oldPrice && (
+                                    <span className="text-[15px] text-neutral-400 line-through font-light">₹{formatPrice(selectedSize.oldPrice)}</span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Description */}
+                        {product.data && (
+                            <div className="space-y-3">
+                                <p className="text-[14px] text-neutral-500 leading-relaxed italic pr-4">
+                                    {truncatedDesc}
+                                </p>
+                                <button 
+                                    onClick={() => {
+                                        navigate(`/product/${product.id}`);
+                                        onClose();
+                                    }}
+                                    className="text-[10px] font-black uppercase tracking-widest text-[#640d14] hover:text-black transition-colors"
+                                >
+                                    Discover More Detail →
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Size Selection */}
+                        {sizesArr.length > 0 && (
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center border-b border-neutral-100 pb-3">
+                                    <span className="text-[11px] font-bold uppercase tracking-[0.35em] text-neutral-400">Select Edition</span>
+                                    <span className="text-[11px] font-bold text-neutral-300 uppercase tracking-[0.3em]">{sizesArr.length} Variations</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-3">
+                                    {sizesArr.map((sz, idx) => (
+                                        <button
+                                            key={idx}
+                                            onClick={() => setSelectedSizeIdx(idx)}
+                                            className={`h-11 flex items-center justify-center border transition-all duration-400 ${selectedSizeIdx === idx ? 'border-[#640d14] bg-[#640d14]/[0.05] text-[#640d14]' : 'border-neutral-200 text-neutral-500 hover:border-neutral-400'} ${sz.isOutOfStock ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                        >
+                                            <span className="text-[12px] font-bold uppercase tracking-widest">{sz.size}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* CTA Section */}
+                        <div className="pt-4 space-y-4">
+                            <div className="flex gap-3 h-14">
+                                {/* Quantity */}
+                                <div className="flex items-center bg-white px-4 rounded-sm border border-neutral-200">
+                                    <button onClick={() => handleQuantityChange(-1)} disabled={quantity <= 1 || isSelectedSizeOut} className="p-1 text-neutral-400 hover:text-[#640d14] transition-colors"><MdRemove size={16} /></button>
+                                    <span className="w-10 text-center font-bold text-neutral-900 tabular-nums">{quantity}</span>
+                                    <button onClick={() => handleQuantityChange(1)} disabled={isSelectedSizeOut || (selectedSize?.stock != null && quantity >= Number(selectedSize.stock))} className="p-1 text-neutral-400 hover:text-[#640d14] transition-colors"><MdAdd size={16} /></button>
+                                </div>
+
+                                {/* Add to Cart */}
+                                <button
+                                    onClick={handleAddToCart}
+                                    disabled={(!isPreOrder && (isSelectedSizeOut || isAlreadyInCart)) || buttonLoading}
+                                    className={`flex-1 rounded-sm flex items-center justify-center gap-3 text-[12px] font-bold uppercase tracking-[0.35em] transition-all duration-500 ${isPreOrder ? 'bg-amber-600/10 text-amber-700 border border-amber-600/20 hover:bg-amber-600/20 shadow-lg shadow-amber-600/5' : (isSelectedSizeOut || isAlreadyInCart ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed' : 'bg-neutral-900 text-white hover:bg-[#640d14] shadow-xl')}`}
+                                >
+                                    {buttonLoading ? (
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                        <>
+                                            {isPreOrder ? <i className="fab fa-whatsapp" /> : (isSelectedSizeOut ? <i className="fas fa-ban" /> : (isAlreadyInCart ? <i className="fas fa-check" /> : <MdShoppingCart size={18} />))}
+                                            <span>{isPreOrder ? "Pre-Order" : (isSelectedSizeOut ? "Sold Out" : (isAlreadyInCart ? "In Cart" : "Add to Cart"))}</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                {/* Wishlist */}
+                                <WishlistButton product={product} size="medium" className="!rounded-sm !h-14 !w-14 flex-shrink-0 border border-neutral-200 hover:border-[#640d14] transition-all" />
+                            </div>
+
+                            {/* Buy Now */}
+                            {!isAlreadyInCart && !isSelectedSizeOut && !isPreOrder && (
+                                <button
+                                    onClick={handleBuyNow}
+                                    disabled={buyNowLoading}
+                                    className="w-full h-14 bg-[#640d14] text-white uppercase tracking-[0.35em] text-[12px] font-bold flex items-center justify-center gap-3 group transition-all duration-500 shadow-lg hover:shadow-xl rounded-sm"
+                                >
+                                    {buyNowLoading ? (
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                        <>
+                                            <MdFlashOn size={18} />
+                                            <span>Buy It Now</span>
+                                        </>
+                                    )}
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
             </div>
-
-            {/* Toast Notification */}
-            {showToast && (
-                <div className="qv-toast">
-                    <div className="qv-toast-content">
-                        <div className="qv-toast-body">
-                            <div className="qv-toast-icon-wrapper">
-                                <svg className="qv-toast-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                            </div>
-                            <div className="qv-toast-text">
-                                <div className="qv-toast-title">Successfully Added!</div>
-                                <div className="qv-toast-subtitle">Product has been added to your cart</div>
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            className="qv-toast-close"
-                            onClick={() => setShowToast(false)}
-                            aria-label="Close notification"
-                        >
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* Premium CSS Styles */}
-            <style jsx>{`
-                /* Backdrop */
-                .qv-backdrop {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background: rgba(0, 0, 0, 0.75);
-                    backdrop-filter: blur(8px);
-                    z-index: 1040;
-                    animation: qvFadeIn 0.3s ease;
-                }
-
-                /* Modal */
-                .qv-modal {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    z-index: 1050;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    padding: 20px;
-                }
-
-                .qv-dialog {
-                    width: 100%;
-                    max-width: 1000px;
-                    max-height: 90vh;
-                    background: #fff;
-                    border-radius: 8px;
-                    overflow: hidden;
-                    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
-                    animation: qvSlideIn 0.3s ease;
-                    display: flex;
-                    flex-direction: column;
-                }
-
-                .qv-content {
-                    position: relative;
-                    display: flex;
-                    flex-direction: column;
-                    height: 100%;
-                    overflow: hidden;
-                }
-
-                /* Close Button */
-                .qv-close-btn {
-                    position: absolute;
-                    top: 16px;
-                    right: 16px;
-                    z-index: 1060;
-                    background: rgba(255, 255, 255, 0.9);
-                    border: 1px solid #eee;
-                    border-radius: 50%;
-                    width: 36px;
-                    height: 36px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 18px;
-                    color: #333;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                }
-
-                .qv-close-btn:hover {
-                    background: #fff;
-                    transform: scale(1.1);
-                }
-
-                /* Body */
-                .qv-body {
-                    flex: 1;
-                    overflow: hidden;
-                    display: flex;
-                    flex-direction: column;
-                }
-
-                .qv-layout {
-                    display: grid;
-                    grid-template-columns: 1fr 1fr;
-                    height: 100%;
-                    max-height: 90vh;
-                    flex: 1;
-                }
-
-                /* Gallery */
-                .qv-gallery {
-                    display: flex;
-                    flex-direction: column;
-                    background: #fafafa;
-                    position: relative;
-                }
-
-                .qv-image-container {
-                    flex: 1;
-                    position: relative;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    padding: 40px;
-                    min-height: 400px;
-                }
-
-                .qv-main-image {
-                    width: 100%;
-                    height: 100%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    min-height: 320px;
-                }
-
-                .qv-product-image {
-                    width: 400px;
-                    height: 400px;
-                    object-fit: cover;
-                    transition: transform 0.3s ease;
-                }
-
-                .qv-product-image:hover {
-                    transform: scale(1.02);
-                }
-
-                /* Badge */
-                .qv-badge {
-                    position: absolute;
-                    top: 16px;
-                    left: 16px;
-                    z-index: 10;
-                }
-
-                .qv-badge-text {
-                    padding: 4px 10px;
-                    font-size: 11px;
-                    font-weight: 600;
-                    border-radius: 3px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-
-                .qv-badge-text.new {
-                    background: #640d14;
-                    color: #fff;
-                }
-
-                .qv-badge-text.sale {
-                    background: #e74c3c;
-                    color: #fff;
-                }
-
-                /* Navigation Dots */
-                .qv-nav-dots {
-                    position: absolute;
-                    bottom: 20px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                    display: flex;
-                    gap: 8px;
-                }
-
-                .qv-nav-dot {
-                    width: 12px;
-                    height: 12px;
-                    border-radius: 50%;
-                    border: 2px solid #fff;
-                    background: rgba(255, 255, 255, 0.5);
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                }
-
-                .qv-nav-dot.active {
-                    background: #640d14;
-                    border-color: #640d14;
-                }
-
-                /* Thumbnails */
-                .qv-thumbnails {
-                    display: flex;
-                    gap: 8px;
-                    padding: 16px;
-                    justify-content: center;
-                    background: #fff;
-                    border-top: 1px solid #eee;
-                }
-
-                .qv-thumbnail {
-                    width: 60px;
-                    height: 60px;
-                    border: 1px solid #eee;
-                    border-radius: 4px;
-                    overflow: hidden;
-                    background: #fff;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                    padding: 0;
-                    flex-shrink: 0;
-                }
-
-                .qv-thumbnail-img {
-                    width: 100%;
-                    height: 100%;
-                    object-fit: cover;
-                }
-
-                .qv-thumbnail.active {
-                    border-color: #640d14;
-                }
-
-                .qv-thumbnail:hover {
-                    border-color: #640d14;
-                    transform: translateY(-1px);
-                }
-
-                /* Details */
-                .qv-details {
-                    display: flex;
-                    flex-direction: column;
-                    background: #fff;
-                    overflow-y: auto;
-                    flex: 1;
-                    min-height: 0;
-                }
-
-                .qv-content-wrapper {
-                    padding: 32px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 24px;
-                    min-height: 100%;
-                }
-
-                /* Header */
-                .qv-header {
-                    margin-bottom: 8px;
-                }
-
-                .qv-title {
-                    font-size: 24px;
-                    font-weight: 600;
-                    color: #333;
-                    margin: 0;
-                    line-height: 1.2;
-                }
-
-                /* Price */
-                .qv-price {
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                }
-
-                .qv-current-price {
-                    font-size: 20px;
-                    font-weight: 700;
-                    color: #640d14;
-                }
-
-                .qv-old-price {
-                    font-size: 14px;
-                    text-decoration: line-through;
-                    color: #999;
-                }
-
-                /* Sizes */
-                .qv-sizes {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 12px;
-                }
-
-                .qv-sizes-title {
-                    font-size: 13px;
-                    font-weight: 600;
-                    color: #333;
-                    margin: 0;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-
-                .qv-size-grid {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 8px;
-                }
-
-                .qv-size-btn {
-                    min-width: 80px;
-                    padding: 10px 12px;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    background: #fff;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    gap: 2px;
-                }
-
-                .qv-size-btn:hover {
-                    border-color: #640d14;
-                    transform: translateY(-1px);
-                }
-
-                .qv-size-btn.active {
-                    border-color: #640d14;
-                    background: #640d14;
-                    color: #fff;
-                }
-
-                .qv-size-name {
-                    font-size: 11px;
-                    font-weight: 600;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-
-                .qv-size-price {
-                    font-size: 10px;
-                    opacity: 0.8;
-                }
-
-                /* Quantity */
-                .qv-quantity {
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                }
-
-                .qv-quantity label {
-                    font-weight: 600;
-                    color: #333;
-                    font-size: 13px;
-                    min-width: 60px;
-                }
-
-                .qv-quantity-controls {
-                    display: flex;
-                    align-items: center;
-                    border: 1px solid #ddd;
-                    border-radius: 4px;
-                    overflow: hidden;
-                    background: #fff;
-                }
-
-                .qv-qty-btn {
-                    background: #f8f9fa;
-                    border: none;
-                    padding: 8px 10px;
-                    font-size: 14px;
-                    cursor: pointer;
-                    transition: background 0.2s;
-                    min-width: 36px;
-                }
-
-                .qv-qty-btn:hover:not(:disabled) {
-                    background: #e9ecef;
-                }
-
-                .qv-qty-btn:disabled {
-                    opacity: 0.5;
-                    cursor: not-allowed;
-                }
-
-                .qv-qty-input {
-                    width: 45px;
-                    text-align: center;
-                    border: none;
-                    padding: 8px 4px;
-                    font-size: 13px;
-                    background: #fff;
-                }
-
-                .qv-qty-input:focus {
-                    outline: none;
-                }
-
-                /* Description */
-                .qv-description h3 {
-                    font-size: 13px;
-                    font-weight: 600;
-                    color: #333;
-                    margin: 0 0 8px 0;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-
-                .qv-description p {
-                    color: #555;
-                    line-height: 1.5;
-                    margin: 0;
-                    font-size: 13px;
-                }
-
-                /* Actions Container */
-                .qv-actions {
-                    display: flex;
-                    gap: 12px;
-                    align-items: center;
-                }
-
-                /* Wishlist Button in QuickView */
-                .qv-wishlist-btn {
-                    background: transparent;
-                    border: 2px solid #640d14;
-                    color: #640d14;
-                    padding: 12px 16px;
-                    border-radius: 8px;
-                    font-size: 13px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.3s ease;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 8px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                    min-width: 120px;
-                }
-
-                .qv-wishlist-btn:hover {
-                    background: #640d14;
-                    color: white;
-                    transform: translateY(-2px);
-                }
-
-                .qv-wishlist-btn.in-wishlist {
-                    background: #640d14;
-                    color: white;
-                }
-
-                /* Add to Cart Button */
-                .qv-cart-btn {
-                    background: #640d14;
-                    color: #fff;
-                    padding: 12px 16px;
-                    font-size: 13px;
-                    font-weight: 600;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    transition: background 0.2s;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 6px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-
-                .qv-cart-btn:hover:not(:disabled) {
-                    background: #4a0a0f;
-                }
-
-                .qv-cart-btn:disabled {
-                    background: #ccc;
-                    cursor: not-allowed;
-                }
-
-                .qv-spinner {
-                    width: 12px;
-                    height: 12px;
-                    border: 2px solid transparent;
-                    border-top: 2px solid #fff;
-                    border-radius: 50%;
-                    animation: qvSpin 1s linear infinite;
-                }
-
-                /* Toast */
-                .qv-toast {
-                    position: fixed;
-                    top: 24px;
-                    right: 24px;
-                    z-index: 1070;
-                    animation: qvToastSlideIn 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-                }
-
-                .qv-toast-content {
-                    background: linear-gradient(135deg, #640d14 0%, #9b7645 100%);
-                    color: white;
-                    border-radius: 16px;
-                    box-shadow: 0 20px 40px rgba(100, 13, 20, 0.3);
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                    backdrop-filter: blur(10px);
-                    max-width: 400px;
-                    min-width: 320px;
-                }
-
-                .qv-toast-body {
-                    display: flex;
-                    align-items: center;
-                    padding: 20px;
-                    gap: 16px;
-                }
-
-                .qv-toast-icon-wrapper {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    width: 48px;
-                    height: 48px;
-                    background: rgba(255, 255, 255, 0.15);
-                    border-radius: 50%;
-                    flex-shrink: 0;
-                }
-
-                .qv-toast-icon {
-                    width: 24px;
-                    height: 24px;
-                    color: white;
-                }
-
-                .qv-toast-text {
-                    flex: 1;
-                    min-width: 0;
-                }
-
-                .qv-toast-title {
-                    font-weight: 600;
-                    font-size: 16px;
-                    line-height: 1.4;
-                    margin-bottom: 4px;
-                }
-
-                .qv-toast-subtitle {
-                    font-size: 14px;
-                    opacity: 0.9;
-                    line-height: 1.3;
-                }
-
-                .qv-toast-close {
-                    background: rgba(255, 255, 255, 0.1);
-                    border: none;
-                    color: white;
-                    cursor: pointer;
-                    padding: 8px;
-                    width: 32px;
-                    height: 32px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    border-radius: 50%;
-                    transition: all 0.2s ease;
-                    flex-shrink: 0;
-                }
-
-                .qv-toast-close svg {
-                    width: 16px;
-                    height: 16px;
-                }
-
-                .qv-toast-close:hover {
-                    background: rgba(255, 255, 255, 0.2);
-                    transform: scale(1.1);
-                }
-
-                /* Animations */
-                @keyframes qvFadeIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                }
-
-                @keyframes qvSlideIn {
-                    from { 
-                        opacity: 0; 
-                        transform: translateY(-20px) scale(0.98); 
-                    }
-                    to { 
-                        opacity: 1; 
-                        transform: translateY(0) scale(1); 
-                    }
-                }
-
-                @keyframes qvSpin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-
-                @keyframes qvToastSlideIn {
-                    from { 
-                        opacity: 0; 
-                        transform: translateX(100%) scale(0.8); 
-                    }
-                    to { 
-                        opacity: 1; 
-                        transform: translateX(0) scale(1); 
-                    }
-                }
-
-                /* Responsive */
-                @media (max-width: 768px) {
-                    .qv-modal {
-                        padding: 10px;
-                        align-items: flex-start;
-                        padding-top: 20px;
-                    }
-
-                    .qv-dialog {
-                        max-height: 95vh;
-                        height: 95vh;
-                    }
-
-                    .qv-layout {
-                        grid-template-columns: 1fr;
-                        height: 100%;
-                        max-height: none;
-                    }
-
-                    .qv-gallery {
-                        height: 40vh;
-                        min-height: 300px;
-                        flex-shrink: 0;
-                    }
-
-                    .qv-image-container {
-                        padding: 20px;
-                        min-height: 250px;
-                    }
-
-                    .qv-main-image {
-                        min-height: 200px;
-                    }
-
-                    .qv-product-image {
-                        width: 200px;
-                        height: 200px;
-                        object-fit: cover;
-                    }
-
-                    .qv-thumbnails {
-                        padding: 12px;
-                    }
-
-                    .qv-thumbnail {
-                        width: 50px;
-                        height: 50px;
-                    }
-
-                    .qv-details {
-                        height: 55vh;
-                        overflow-y: auto;
-                    }
-
-                    .qv-content-wrapper {
-                        padding: 20px;
-                        gap: 16px;
-                        padding-bottom: 100px;
-                    }
-
-                    .qv-title {
-                        font-size: 20px;
-                    }
-
-                    .qv-current-price {
-                        font-size: 18px;
-                    }
-
-                    .qv-size-btn {
-                        min-width: 70px;
-                        padding: 8px 10px;
-                    }
-
-                    .qv-cart-btn {
-                        position: sticky;
-                        bottom: 0;
-                        margin-top: auto;
-                        border-radius: 0;
-                        z-index: 10;
-                    }
-                }
-
-                @media (max-width: 480px) {
-                    .qv-modal {
-                        padding: 5px;
-                        align-items: flex-start;
-                        padding-top: 10px;
-                    }
-
-                    .qv-dialog {
-                        height: 98vh;
-                        max-height: 98vh;
-                    }
-
-                    .qv-gallery {
-                        height: 35vh;
-                        min-height: 250px;
-                    }
-
-                    .qv-image-container {
-                        padding: 16px;
-                        min-height: 200px;
-                    }
-
-                    .qv-main-image {
-                        min-height: 180px;
-                    }
-
-                    .qv-product-image {
-                        width: 250px;
-                        height: 200px;
-                        object-fit: cover;
-                    }
-
-                    .qv-details {
-                        height: 60vh;
-                        overflow-y: auto;
-                    }
-
-                    .qv-content-wrapper {
-                        padding: 16px;
-                        gap: 14px;
-                        padding-bottom: 80px;
-                    }
-
-                    .qv-title {
-                        font-size: 18px;
-                    }
-
-                    .qv-current-price {
-                        font-size: 16px;
-                    }
-
-                    .qv-close-btn {
-                        top: 12px;
-                        right: 12px;
-                        width: 32px;
-                        height: 32px;
-                        font-size: 16px;
-                    }
-
-                    .qv-thumbnail {
-                        width: 40px;
-                        height: 40px;
-                    }
-
-                    .qv-cart-btn {
-                        position: sticky;
-                        bottom: 0;
-                        margin-top: auto;
-                        border-radius: 0;
-                        z-index: 10;
-                        font-size: 12px;
-                        padding: 10px 12px;
-                    }
-                }
-            `}</style>
-        </>
+        </div>
     );
 }
 

@@ -14,7 +14,7 @@ function Collection2() {
   };
 
   return (
-    <section className="luxury-collection-wrap"
+    <section className="luxury-collection-wrap max-w-[1400px] mx-auto"
     >
       <div className="collection-split">
         

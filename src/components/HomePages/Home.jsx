@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useEffect, useState } from "react";
 import Preloader from "../Preloader";
+import { usePreloader } from "../../context/PreloaderContext";
 import BannerSlider from "./Bannerslider.jsx";
 import Collections from "./Collections";
 import FeaturesSlider from "./FeatureBoxes";
@@ -11,6 +12,8 @@ import Collection2 from "./Collection2";
 import QuickView from "../QuickView";
 import VideoBnr from "./VIdeoBnr.jsx";
 import SizeGallery from "./Size.jsx";
+import HeroSkeleton from "./HeroSkeleton";
+import SectionSkeleton from "./SectionSkeleton";
 
 // Lazy load heavy components
 const Testimonials = lazy(() => import("./Testimonials"));
@@ -19,12 +22,7 @@ const FullScreenBanner = lazy(() => import("./FullBanner.jsx"));
 
 function Home() {
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [isPageLoading, setIsPageLoading] = useState(true);
-
-  useEffect(() => {
-    const t = setTimeout(() => setIsPageLoading(false), 700);
-    return () => clearTimeout(t);
-  }, []);
+  const { isLoading } = usePreloader();
 
   const handleQuickView = (product) => {
     setSelectedProduct(product);
@@ -36,15 +34,15 @@ function Home() {
 
   return (
     <div>
-      {isPageLoading && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(255,255,255,0.96)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {isLoading && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(255,255,255,1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Preloader />
         </div>
       )}
       <div className="">
         <div id="wrapper">
           <div className="container-full-2 ">
-            <Suspense fallback={<div className="loading-placeholder" style={{ height: '200px', background: '#f5f5f5' }}></div>}>
+            <Suspense fallback={<HeroSkeleton />}>
               <VideoBanner />
             </Suspense>
             {/* <BannerSlider /> */}

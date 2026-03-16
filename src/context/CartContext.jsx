@@ -127,15 +127,17 @@ export const CartProvider = ({ children }) => {
         setCartItems(prevItems => {
             const sizeKey = product.selectedSize && product.selectedSize.size ? product.selectedSize.size : '';
             const existingItem = prevItems.find(item => item.id === product.id && ((item.selectedSize && item.selectedSize.size) === sizeKey));
+            const maxStock = product.selectedSize?.stock != null ? Number(product.selectedSize.stock) : (product.stock != null ? Number(product.stock) : Infinity);
+            
             if (existingItem) {
                 return prevItems.map(item =>
                     item.id === product.id && ((item.selectedSize && item.selectedSize.size) === sizeKey)
-                        ? { ...item, quantity: item.quantity + (product.quantity || 1) }
+                        ? { ...item, quantity: Math.min(maxStock, item.quantity + (product.quantity || 1)) }
                         : item
                 );
             }
             // Assign a unique cartItemId to each new cart entry
-            return [...prevItems, { ...product, quantity: product.quantity || 1, cartItemId: uuidv4() }];
+            return [...prevItems, { ...product, quantity: Math.min(maxStock, product.quantity || 1), cartItemId: uuidv4() }];
         });
     };
 
@@ -145,11 +147,13 @@ export const CartProvider = ({ children }) => {
 
     const updateQuantity = (cartItemId, delta) => {
         setCartItems(prevItems =>
-            prevItems.map(item =>
-                item.cartItemId === cartItemId
-                    ? { ...item, quantity: Math.max(1, item.quantity + delta) }
-                    : item
-            )
+            prevItems.map(item => {
+                if (item.cartItemId === cartItemId) {
+                    const maxStock = item.selectedSize?.stock != null ? Number(item.selectedSize.stock) : (item.stock != null ? Number(item.stock) : Infinity);
+                    return { ...item, quantity: Math.min(maxStock, Math.max(1, item.quantity + delta)) };
+                }
+                return item;
+            })
         );
     };
 

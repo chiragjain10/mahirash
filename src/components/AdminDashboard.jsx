@@ -1,42 +1,113 @@
 // src/components/AdminDashboard.jsx
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, deleteDoc, doc, updateDoc, addDoc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, deleteDoc, doc, updateDoc, addDoc, setDoc, getDoc, arrayUnion } from 'firebase/firestore';
 import { db } from './firebase';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import UploadItemForm from './UploadItemForm';
 import axios from 'axios';
+import { 
+  MdDashboard, 
+  MdOutlineLibraryBooks, 
+  MdLogout,
+  MdSearch,
+  MdNotificationsNone,
+  MdOutlineKeyboardArrowDown,
+  MdAdd,
+  MdFileDownload,
+  MdVideoLibrary,
+  MdEdit,
+  MdDelete,
+  MdCheckCircle,
+  MdError,
+  MdList,
+  MdReceipt,
+  MdComment,
+  MdClose,
+  MdCloudUpload,
+  MdHandshake
+} from 'react-icons/md';
+import { 
+  HiUsers, 
+  HiBriefcase, 
+  HiOutlineViewColumns, 
+  HiOutlineIdentification, 
+  HiCalendarDays, 
+  HiMap, 
+  HiSparkles, 
+  HiUserGroup, 
+  HiOutlineDocumentText,
+  HiOutlineHome,
+  HiOutlineBell,
+  HiUserCircle
+} from 'react-icons/hi2';
 
 const genderOptions = ['men', 'women', 'unisex'];
-const perfumeNotes = ['Woody', 'Citrus', 'Flower', 'Aromatic', 'Custom'];
+const basePerfumeNotes = ['Woody', 'Citrus', 'Flower', 'Aromatic'];
 
 const AdminDashboard = () => {
   const [products, setProducts] = useState([]);
+  const [customLists, setCustomLists] = useState({ brands: [], categories: [], notes: [] });
   const [searchQuery, setSearchQuery] = useState('');
   const [reviews, setReviews] = useState([]);
   const [orders, setOrders] = useState([]);
   const [isOrdersLoading, setIsOrdersLoading] = useState(false);
   const [isReviewsLoading, setIsReviewsLoading] = useState(false);
   const [editItem, setEditItem] = useState(null);
-  const [formData, setFormData] = useState({});
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isUpdating, setIsUpdating] = useState(false);
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [csvFile, setCsvFile] = useState(null);
   const [isCsvUploading, setIsCsvUploading] = useState(false);
   const [csvUploadProgress, setCsvUploadProgress] = useState({ current: 0, total: 0, errors: [] });
+  const [activeTab, setActiveTab] = useState('Product Management');
+  const [users, setUsers] = useState([]);
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
+  const [isMetadataUpdating, setIsMetadataUpdating] = useState(false);
+  const [newMetadataVal, setNewMetadataVal] = useState('');
+  const [editingMetadata, setEditingMetadata] = useState(null); // { type, oldVal, newVal }
   const { adminUser, adminLogout } = useAdminAuth();
   const navigate = useNavigate();
 
   // Video management states
   const [showVideoModal, setShowVideoModal] = useState(false);
-  const [videoFiles, setVideoFiles] = useState({ heroVideo: null, stageVideo: null, bannerVideo: null });
-  const [currentVideos, setCurrentVideos] = useState({ heroVideoUrl: '', stageVideoUrl: '', bannerVideoUrl: '' });
+  const [videoFiles, setVideoFiles] = useState({ 
+    heroVideos: [], // Array of files
+    stageVideo: null, 
+    bannerImage: null, // Changed from bannerVideo
+    watchAndBuyVideo: null, // Added for Watch and Buy
+    exclusiveOfferImage: null // Added for BannerImg section
+  });
+  const [currentVideos, setCurrentVideos] = useState({ 
+    heroVideoUrls: [], // Array of URLs
+    stageVideoUrl: '', 
+    bannerImageUrl: '', // Changed from bannerVideoUrl
+    watchAndBuyVideos: [], // Array of { url, tag }
+    exclusiveOfferImageUrl: '' // Added for BannerImg section
+  });
+  const [watchAndBuyTag, setWatchAndBuyTag] = useState(''); // Tag for Watch and Buy video
+  const [editingWatchAndBuy, setEditingWatchAndBuy] = useState(null); // { url, tag }
   const [isVideoUploading, setIsVideoUploading] = useState(false);
 
+  useEffect(() => {
+    const fetchCustomLists = async () => {
+      try {
+        const docRef = doc(db, 'metadata', 'lists');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setCustomLists(docSnap.data());
+        } else {
+          await setDoc(docRef, { brands: [], categories: [], notes: [] });
+        }
+      } catch (error) {
+        console.error('Error fetching custom lists:', error);
+      }
+    };
+    fetchCustomLists();
+  }, []);
+
   // Static brand list for dropdown (same as UploadItemForm)
-  const brands = [
+  const baseBrands = [
     "ACQUA DI PARMA",
     "AFNAN",
     "AJMAL",
@@ -136,6 +207,11 @@ const AdminDashboard = () => {
     "YVES SAINT LAURENT"
   ];
 
+  // Merge base lists with custom lists
+  const brands = [...new Set([...baseBrands, ...(customLists.brands || [])])].sort();
+  const categories = [...new Set(['Designer', 'Middle eastern', 'niche', 'Vials', 'Gift sets', 'Combo', ...(customLists.categories || [])])];
+  const perfumeNotes = [...new Set([...basePerfumeNotes, ...(customLists.notes || []), 'Custom'])];
+
   // Helper function to safely format price
   const formatPrice = (price) => {
     if (!price) return '0.00';
@@ -197,6 +273,22 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchUsers = async () => {
+    try {
+      setIsUsersLoading(true);
+      const querySnapshot = await getDocs(collection(db, 'users'));
+      const userList = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setUsers(userList);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    } finally {
+      setIsUsersLoading(false);
+    }
+  };
+
   const fetchReviews = async () => {
     try {
       setIsReviewsLoading(true);
@@ -245,117 +337,15 @@ const AdminDashboard = () => {
 
   const handleEditClick = (item) => {
     setEditItem(item);
-    // Normalize gender to array for checkbox UI
-    const normalizedGenderArray = genderOptions.includes(item.gender) ? [item.gender] : [];
-    // Enhance sizes with imagesFiles and imagesPreview and customSize handling
-    const enhancedSizes = Array.isArray(item.sizes)
-      ? item.sizes.map(s => ({
-        size: s.size || '',
-        price: s.price || '',
-        oldPrice: s.oldPrice || '',
-        customSize: '',
-        imagesFiles: Array.isArray(s.images) ? [...s.images] : [],
-        imagesPreview: Array.isArray(s.images) ? [...s.images] : [],
-        stock: typeof s.stock === 'number' ? s.stock : Number(s.stock || 0) || 0,
-        isOutOfStock: (typeof s.stock === 'number' ? s.stock : Number(s.stock || 0)) <= 0
-      }))
-      : [];
-    setFormData({
-      ...item,
-      brand: item.brand || '',
-      gender: normalizedGenderArray,
-      sizes: enhancedSizes,
-      note: item.note || '',
-      customNote: '',
-      customBadge: '',
-      badge: item.badge || '',
-      isAdminLogin: item.isAdminLogin || false,
-      isPreOrder: item.isPreOrder || false
-    });
   };
 
-  const handleFormChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => {
-      const newState = { ...prev, [name]: type === 'checkbox' ? checked : value };
-      if (name === 'badge' && value !== 'custom') newState.customBadge = '';
-      if (name === 'note' && value !== 'Custom') newState.customNote = '';
-      return newState;
-    });
-  };
-
-  const handleGenderChange = (e) => {
-    const value = e.target.value;
-    setFormData(prev => {
-      const current = Array.isArray(prev.gender) ? prev.gender : [];
-      if (value === 'unisex') {
-        return { ...prev, gender: ['unisex'] };
-      }
-      const withoutUnisex = current.filter(g => g !== 'unisex');
-      const exists = withoutUnisex.includes(value);
-      const updated = exists ? withoutUnisex.filter(g => g !== value) : [...withoutUnisex, value];
-      return { ...prev, gender: updated };
-    });
-  };
-
-  const handleSizeChange = (idx, field, value) => {
-    setFormData(prev => {
-      const sizes = Array.isArray(prev.sizes) ? [...prev.sizes] : [];
-      if (!sizes[idx]) return prev;
-      if (field === 'size' && value !== 'custom') {
-        sizes[idx] = { ...sizes[idx], size: value, customSize: '' };
-      } else {
-        sizes[idx] = { ...sizes[idx], [field]: value };
-        // Automatically update isOutOfStock based on stock value
-        if (field === 'stock') {
-          const stockValue = Number(value || 0);
-          sizes[idx] = { ...sizes[idx], isOutOfStock: stockValue <= 0 };
-        }
-      }
-      return { ...prev, sizes };
-    });
-  };
-
-  const handleSizeImagesChange = (idx, filesList) => {
-    const newFiles = Array.from(filesList);
-    setFormData(prev => {
-      const sizes = Array.isArray(prev.sizes) ? [...prev.sizes] : [];
-      if (!sizes[idx]) return prev;
-      const existingFiles = sizes[idx].imagesFiles || [];
-      const combined = [...existingFiles, ...newFiles].slice(0, 4);
-      const previews = combined.map(f => (typeof f === 'string' ? f : URL.createObjectURL(f)));
-      sizes[idx] = { ...sizes[idx], imagesFiles: combined, imagesPreview: previews };
-      return { ...prev, sizes };
-    });
-  };
-
-  const handleRemoveSizeImage = (idx, imgIdx) => {
-    setFormData(prev => {
-      const sizes = Array.isArray(prev.sizes) ? [...prev.sizes] : [];
-      if (!sizes[idx]) return prev;
-      const files = [...(sizes[idx].imagesFiles || [])];
-      const previews = [...(sizes[idx].imagesPreview || [])];
-      files.splice(imgIdx, 1);
-      previews.splice(imgIdx, 1);
-      sizes[idx] = { ...sizes[idx], imagesFiles: files, imagesPreview: previews };
-      return { ...prev, sizes };
-    });
-  };
-
-  const uploadToCloudinary = async (file) => {
+  // Upload video/image to Cloudinary
+  const uploadToCloudinary = async (file, type = 'video') => {
     const data = new FormData();
     data.append('file', file);
     data.append('upload_preset', 'Mahirash');
-    const res = await axios.post('https://api.cloudinary.com/v1_1/djmfxpemz/image/upload', data);
-    return res.data.secure_url;
-  };
-
-  // Upload video to Cloudinary
-  const uploadVideoToCloudinary = async (file) => {
-    const data = new FormData();
-    data.append('file', file);
-    data.append('upload_preset', 'Mahirash');
-    const res = await axios.post('https://api.cloudinary.com/v1_1/djmfxpemz/video/upload', data);
+    const endpoint = type === 'video' ? 'video/upload' : 'image/upload';
+    const res = await axios.post(`https://api.cloudinary.com/v1_1/djmfxpemz/${endpoint}`, data);
     return res.data.secure_url;
   };
 
@@ -367,9 +357,11 @@ const AdminDashboard = () => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setCurrentVideos({
-          heroVideoUrl: data.heroVideoUrl || '',
+          heroVideoUrls: data.heroVideoUrls || [],
           stageVideoUrl: data.stageVideoUrl || '',
-          bannerVideoUrl: data.bannerVideoUrl || ''
+          bannerImageUrl: data.bannerImageUrl || '',
+          watchAndBuyVideos: data.watchAndBuyVideos || [],
+          exclusiveOfferImageUrl: data.exclusiveOfferImageUrl || ''
         });
       }
     } catch (error) {
@@ -383,22 +375,44 @@ const AdminDashboard = () => {
     try {
       const updatedVideos = { ...currentVideos };
 
-      // Upload hero video to Cloudinary only (skip Firebase to avoid CORS issues)
-      if (videoFiles.heroVideo) {
-        const cloudinaryUrl = await uploadVideoToCloudinary(videoFiles.heroVideo);
-        updatedVideos.heroVideoUrl = cloudinaryUrl;
+      // Upload hero videos to Cloudinary
+      if (videoFiles.heroVideos.length > 0) {
+        const uploadedHeroUrls = await Promise.all(
+          videoFiles.heroVideos.map(file => uploadToCloudinary(file, 'video'))
+        );
+        updatedVideos.heroVideoUrls = [...updatedVideos.heroVideoUrls, ...uploadedHeroUrls];
       }
 
       // Upload stage video to Cloudinary only
       if (videoFiles.stageVideo) {
-        const cloudinaryUrl = await uploadVideoToCloudinary(videoFiles.stageVideo);
+        const cloudinaryUrl = await uploadToCloudinary(videoFiles.stageVideo, 'video');
         updatedVideos.stageVideoUrl = cloudinaryUrl;
       }
 
-      // Upload banner video to Cloudinary only
-      if (videoFiles.bannerVideo) {
-        const cloudinaryUrl = await uploadVideoToCloudinary(videoFiles.bannerVideo);
-        updatedVideos.bannerVideoUrl = cloudinaryUrl;
+      // Upload banner image to Cloudinary
+      if (videoFiles.bannerImage) {
+        const cloudinaryUrl = await uploadToCloudinary(videoFiles.bannerImage, 'image');
+        updatedVideos.bannerImageUrl = cloudinaryUrl;
+      }
+
+      // Upload exclusive offer image to Cloudinary
+      if (videoFiles.exclusiveOfferImage) {
+        const cloudinaryUrl = await uploadToCloudinary(videoFiles.exclusiveOfferImage, 'image');
+        updatedVideos.exclusiveOfferImageUrl = cloudinaryUrl;
+      }
+
+      // Upload Watch and Buy video to Cloudinary
+      if (videoFiles.watchAndBuyVideo) {
+        if (!watchAndBuyTag) {
+          alert('Please enter a tag for the Watch and Buy video.');
+          setIsVideoUploading(false);
+          return;
+        }
+        const cloudinaryUrl = await uploadToCloudinary(videoFiles.watchAndBuyVideo, 'video');
+        updatedVideos.watchAndBuyVideos = [
+          ...(updatedVideos.watchAndBuyVideos || []),
+          { url: cloudinaryUrl, tag: watchAndBuyTag }
+        ];
       }
 
       // Save to Firestore
@@ -406,86 +420,73 @@ const AdminDashboard = () => {
 
       // Update local state
       setCurrentVideos(updatedVideos);
-      setVideoFiles({ heroVideo: null, stageVideo: null, bannerVideo: null });
+      setVideoFiles({ heroVideos: [], stageVideo: null, bannerImage: null, watchAndBuyVideo: null, exclusiveOfferImage: null });
+      setWatchAndBuyTag('');
       setShowVideoModal(false);
-      alert('Videos uploaded successfully!');
+      alert('Assets uploaded successfully!');
     } catch (error) {
-      console.error('Error uploading videos:', error);
-      alert('Failed to upload videos. Please try again.');
+      console.error('Error uploading assets:', error);
+      alert('Failed to upload. Please try again.');
     } finally {
       setIsVideoUploading(false);
     }
   };
 
-  const handleUpdate = async () => {
+  const removeHeroVideo = async (url) => {
+    if (!window.confirm('Are you sure you want to remove this hero video?')) return;
     try {
-      setIsUpdating(true);
-      // Compute gender string
-      const selected = Array.isArray(formData.gender) ? formData.gender : [];
-      let finalGender = 'unisex';
-      if (selected.includes('unisex')) {
-        finalGender = 'unisex';
-      } else if (selected.length === 1) {
-        finalGender = selected[0];
-      }
-
-      const finalBadge = formData.badge === 'custom' ? formData.customBadge : formData.badge;
-      const finalNote = formData.note === 'Custom' ? formData.customNote : formData.note;
-
-      // Prepare sizes and upload new images
-      const preparedSizes = [];
-      for (const s of (Array.isArray(formData.sizes) ? formData.sizes : [])) {
-        if (!(s.size && s.price)) continue;
-        const imagesFiles = s.imagesFiles || [];
-        if (imagesFiles.length === 0) {
-          throw new Error('Each size must have at least 1 image.');
-        }
-        let finalSize = s.size;
-        if (s.size === 'custom' && s.customSize) {
-          finalSize = s.customSize;
-        }
-        const uploadedUrls = [];
-        for (const f of imagesFiles.slice(0, 4)) {
-          if (typeof f === 'string') {
-            uploadedUrls.push(f);
-          } else {
-            const url = await uploadToCloudinary(f);
-            uploadedUrls.push(url);
-          }
-        }
-        const numericStock = formData.isPreOrder ? 999 : Number(s.stock || 0);
-        // Automatically set isOutOfStock based on stock (0 or less = out of stock)
-        const isOutOfStock = formData.isPreOrder ? false : numericStock <= 0;
-        preparedSizes.push({ size: finalSize, price: s.price, oldPrice: s.oldPrice || '', stock: isNaN(numericStock) ? 0 : numericStock, images: uploadedUrls, isOutOfStock });
-      }
-
-      // Automatically calculate product-level isOutOfStock based on all sizes
-      // Product is out of stock if all sizes are out of stock (stock <= 0)
-      const productIsOutOfStock = !formData.isPreOrder && preparedSizes.length > 0 && preparedSizes.every(sz => sz.isOutOfStock || (Number(sz.stock || 0) <= 0));
-
-      const payload = {
-        name: formData.name || '',
-        brand: formData.brand || '',
-        data: formData.data || '',
-        badge: finalBadge || '',
-        isOutOfStock: productIsOutOfStock,
-        tags: Array.isArray(formData.tags) ? formData.tags : [],
-        gender: finalGender,
-        note: finalNote || '',
-        sizes: preparedSizes,
-        isAdminLogin: formData.isAdminLogin || false,
-        isPreOrder: formData.isPreOrder || false
-      };
-
-      const itemRef = doc(db, 'products', editItem.id);
-      await updateDoc(itemRef, payload);
-      setEditItem(null);
-      fetchProducts();
+      const updatedUrls = currentVideos.heroVideoUrls.filter(u => u !== url);
+      const updatedVideos = { ...currentVideos, heroVideoUrls: updatedUrls };
+      await setDoc(doc(db, 'siteConfig', 'videos'), updatedVideos);
+      setCurrentVideos(updatedVideos);
+      alert('Video removed successfully!');
     } catch (error) {
-      console.error('Error updating item:', error);
-      alert(error?.message || 'Failed to update product. Please try again.');
-    } finally {
-      setIsUpdating(false);
+      console.error('Error removing video:', error);
+      alert('Failed to remove video.');
+    }
+  };
+
+  const removeWatchAndBuyVideo = async (url) => {
+    if (!window.confirm('Are you sure you want to remove this Watch and Buy video?')) return;
+    try {
+      const updatedWatchVideos = currentVideos.watchAndBuyVideos.filter(v => v.url !== url);
+      const updatedVideos = { ...currentVideos, watchAndBuyVideos: updatedWatchVideos };
+      await setDoc(doc(db, 'siteConfig', 'videos'), updatedVideos);
+      setCurrentVideos(updatedVideos);
+      alert('Video removed successfully!');
+    } catch (error) {
+      console.error('Error removing video:', error);
+      alert('Failed to remove video.');
+    }
+  };
+
+  const updateWatchAndBuyTag = async (url, newTag) => {
+    if (!newTag) return;
+    try {
+      const updatedWatchVideos = currentVideos.watchAndBuyVideos.map(v => 
+        v.url === url ? { ...v, tag: newTag } : v
+      );
+      const updatedVideos = { ...currentVideos, watchAndBuyVideos: updatedWatchVideos };
+      await setDoc(doc(db, 'siteConfig', 'videos'), updatedVideos);
+      setCurrentVideos(updatedVideos);
+      setEditingWatchAndBuy(null);
+      alert('Tag updated successfully!');
+    } catch (error) {
+      console.error('Error updating tag:', error);
+      alert('Failed to update tag.');
+    }
+  };
+
+  const removeSingleAsset = async (field) => {
+    if (!window.confirm(`Are you sure you want to remove this ${field.replace('Url', '')}?`)) return;
+    try {
+      const updatedVideos = { ...currentVideos, [field]: '' };
+      await setDoc(doc(db, 'siteConfig', 'videos'), updatedVideos);
+      setCurrentVideos(updatedVideos);
+      alert('Asset removed successfully!');
+    } catch (error) {
+      console.error('Error removing asset:', error);
+      alert('Failed to remove asset.');
     }
   };
 
@@ -780,754 +781,822 @@ const AdminDashboard = () => {
     fetchReviews();
     fetchOrders();
     fetchCurrentVideos();
+    fetchUsers();
   }, []);
 
+  const sidebarItems = [
+    { name: 'Manage Products', icon: <MdList className="w-5 h-5" /> },
+    { name: 'Manage Assets', icon: <MdVideoLibrary className="w-5 h-5" /> },
+    { name: 'User', icon: <HiUsers className="w-5 h-5" /> },
+    { name: 'Orders', icon: <MdReceipt className="w-5 h-5" /> },
+    { name: 'Brands', icon: <HiBriefcase className="w-5 h-5" /> },
+    { name: 'Categories', icon: <HiOutlineViewColumns className="w-5 h-5" /> },
+    { name: 'Nodes', icon: <HiSparkles className="w-5 h-5" /> },
+    { name: 'Reviews', icon: <MdComment className="w-5 h-5" /> },
+  ];
+
+  const handleUpdateMetadata = async (type, oldVal, newVal) => {
+    if (!newVal || newVal.trim() === '') return;
+    setIsMetadataUpdating(true);
+    try {
+      const docRef = doc(db, 'metadata', 'lists');
+      const fieldMap = { 'Brands': 'brands', 'Categories': 'categories', 'Nodes': 'notes' };
+      const field = fieldMap[type];
+      
+      const currentList = customLists[field] || [];
+      const newList = currentList.map(item => item === oldVal ? newVal.trim().toUpperCase() : item);
+      
+      await setDoc(docRef, { [field]: newList }, { merge: true });
+      setCustomLists(prev => ({ ...prev, [field]: newList }));
+      setEditingMetadata(null);
+      alert(`${type} updated successfully!`);
+    } catch (error) {
+      console.error('Error updating metadata:', error);
+      alert('Failed to update. Check permissions.');
+    } finally {
+      setIsMetadataUpdating(false);
+    }
+  };
+
+  const handleDeleteMetadata = async (type, val) => {
+    if (!window.confirm(`Are you sure you want to delete "${val}" from ${type}?`)) return;
+    setIsMetadataUpdating(true);
+    try {
+      const docRef = doc(db, 'metadata', 'lists');
+      const fieldMap = { 'Brands': 'brands', 'Categories': 'categories', 'Nodes': 'notes' };
+      const field = fieldMap[type];
+      
+      const currentList = customLists[field] || [];
+      const newList = currentList.filter(item => item !== val);
+      
+      await setDoc(docRef, { [field]: newList }, { merge: true });
+      setCustomLists(prev => ({ ...prev, [field]: newList }));
+      alert(`${type} deleted successfully!`);
+    } catch (error) {
+      console.error('Error deleting metadata:', error);
+      alert('Failed to delete. Check permissions.');
+    } finally {
+      setIsMetadataUpdating(false);
+    }
+  };
+
+  const handleAddMetadata = async (type, val) => {
+    if (!val || val.trim() === '') return;
+    setIsMetadataUpdating(true);
+    try {
+      const docRef = doc(db, 'metadata', 'lists');
+      const fieldMap = { 'Brands': 'brands', 'Categories': 'categories', 'Nodes': 'notes' };
+      const field = fieldMap[type];
+      
+      const formattedVal = type === 'Brands' ? val.trim().toUpperCase() : val.trim();
+      await setDoc(docRef, { [field]: arrayUnion(formattedVal) }, { merge: true });
+      
+      setCustomLists(prev => ({
+        ...prev,
+        [field]: [...new Set([...(prev[field] || []), formattedVal])]
+      }));
+      setNewMetadataVal('');
+      alert(`${type} added successfully!`);
+    } catch (error) {
+      console.error('Error adding metadata:', error);
+      alert('Failed to add. Check permissions.');
+    } finally {
+      setIsMetadataUpdating(false);
+    }
+  };
+
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #F8F5F2 0%, #EFE8DC 100%)',
-      padding: '20px'
-    }}>
-      <div className="container-fluid">
-        {/* Header */}
-        <div style={{
-          background: '#fff',
-          borderRadius: '20px',
-          padding: '30px',
-          marginBottom: '30px',
-          boxShadow: '0 10px 40px rgba(123, 84, 33, 0.1)',
-          border: '1px solid rgba(201, 179, 126, 0.2)'
-        }}>
-          <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
-            <div>
-              <h1 style={{
-                color: '#3B2F2F',
-                fontSize: '32px',
-                fontWeight: '600',
-                margin: 0,
-                fontFamily: 'serif'
-              }}>
-                <i className="fas fa-crown me-3" style={{ color: '#640d14' }}></i>
-                Admin Dashboard
-              </h1>
-              <p style={{
-                color: '#640d14',
-                fontSize: '14px',
-                margin: '8px 0 0 0',
-                opacity: 0.8
-              }}>
-                Welcome back, {adminUser?.displayName || 'Administrator'}
-              </p>
-            </div>
-            <div className="d-flex gap-2">
-              <button
-                className="btn"
-                onClick={() => setShowVideoModal(true)}
-                style={{
-                  background: 'linear-gradient(135deg, #FF6B35, #F7931E)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '12px',
-                  padding: '12px 24px',
-                  fontWeight: '600',
-                  boxShadow: '0 8px 25px rgba(255, 107, 53, 0.3)',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.transform = 'translateY(-2px)';
-                  e.target.style.boxShadow = '0 12px 35px rgba(255, 107, 53, 0.4)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.transform = 'translateY(0)';
-                  e.target.style.boxShadow = '0 8px 25px rgba(255, 107, 53, 0.3)';
-                }}
-              >
-                <i className="fas fa-video me-2"></i>
-                Manage Videos
-              </button>
-              <button
-                className="btn"
-                onClick={() => setShowUploadModal(true)}
-                style={{
-                  background: 'linear-gradient(135deg, #640d14, #9b7645)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '12px',
-                  padding: '12px 24px',
-                  fontWeight: '600',
-                  boxShadow: '0 8px 25px rgba(123, 84, 33, 0.3)',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.transform = 'translateY(-2px)';
-                  e.target.style.boxShadow = '0 12px 35px rgba(123, 84, 33, 0.4)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.transform = 'translateY(0)';
-                  e.target.style.boxShadow = '0 8px 25px rgba(123, 84, 33, 0.3)';
-                }}
-              >
-                <i className="fas fa-plus me-2"></i>
-                Add Product
-              </button>
-              <button
-                className="btn"
-                onClick={() => setShowCsvModal(true)}
-                style={{
-                  background: 'linear-gradient(135deg, #2196F3, #1976D2)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '12px',
-                  padding: '12px 24px',
-                  fontWeight: '600',
-                  boxShadow: '0 8px 25px rgba(33, 150, 243, 0.3)',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.transform = 'translateY(-2px)';
-                  e.target.style.boxShadow = '0 12px 35px rgba(33, 150, 243, 0.4)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.transform = 'translateY(0)';
-                  e.target.style.boxShadow = '0 8px 25px rgba(33, 150, 243, 0.3)';
-                }}
-              >
-                <i className="fas fa-file-csv me-2"></i>
-                Upload CSV
-              </button>
-              <button
-                className="btn"
+    <div className="flex min-h-screen bg-[#f8f9fa] font-sans">
+      {/* Sidebar */}
+      <aside className="w-64 bg-[#1e1e2d] text-white flex flex-col fixed h-full z-30">
+        <div className="p-6">
+          <h1 className="text-2xl font-bold tracking-tight">Admin</h1>
+        </div>
+        
+        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700">
+          {sidebarItems.map((item, index) => (
+            <button
+              key={index}
+              onClick={() => setActiveTab(item.name)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-medium ${
+                activeTab === item.name 
+                  ? 'bg-white/10 text-white' 
+                  : 'text-gray-400 hover:bg-white/5 hover:text-white'
+              }`}
+            >
+              {item.icon}
+              {item.name}
+            </button>
+          ))}
+        </nav>
+
+        <div className="p-4 border-t border-white/10">
+          <Link
+            to="/"
+            className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-400 hover:bg-white/5 hover:text-white transition-colors"
+          >
+            <HiOutlineHome className="w-5 h-5" />
+            Back to Site
+          </Link>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col ml-64">
+        {/* Top Header */}
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-20">
+          <div className="flex items-center gap-4">
+            <h2 className="text-lg font-semibold text-gray-800">Admin Panel</h2>
+          </div>
+
+          <div className="flex items-center gap-6">
+            <button className="relative text-gray-500 hover:text-gray-700 transition-colors">
+              <HiOutlineBell className="w-6 h-6" />
+              <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+            </button>
+            
+            <div className="flex items-center gap-3 pl-6 border-l border-gray-200">
+              <div className="flex items-center gap-2 cursor-pointer group">
+                <HiUserCircle className="w-8 h-8 text-gray-400 group-hover:text-gray-600 transition-colors" />
+                <div className="text-sm">
+                  <p className="font-semibold text-gray-800 leading-tight">Admin</p>
+                </div>
+                <MdOutlineKeyboardArrowDown className="w-4 h-4 text-gray-500" />
+              </div>
+              <button 
                 onClick={handleLogout}
-                style={{
-                  background: '#fff',
-                  color: '#640d14',
-                  border: '2px solid #640d14',
-                  borderRadius: '12px',
-                  padding: '12px 24px',
-                  fontWeight: '600',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#640d14';
-                  e.target.style.color = '#fff';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#fff';
-                  e.target.style.color = '#640d14';
-                }}
+                className="ml-4 p-2 text-gray-500 hover:text-red-600 transition-colors"
+                title="Logout"
               >
-                <i className="fas fa-sign-out-alt me-2"></i>
-                Logout
+                <MdLogout className="w-5 h-5" />
               </button>
             </div>
           </div>
-        </div>
+        </header>
 
-        {/* Stats Cards */}
-        <div className="row mb-4">
-          <div className="col-md-3 col-sm-6 mb-3">
-            <div style={{
-              background: '#fff',
-              borderRadius: '16px',
-              padding: '25px',
-              textAlign: 'center',
-              boxShadow: '0 8px 25px rgba(123, 84, 33, 0.1)',
-              border: '1px solid rgba(201, 179, 126, 0.2)'
-            }}>
-              <div style={{
-                width: '60px',
-                height: '60px',
-                background: 'linear-gradient(135deg, #640d14, #9b7645)',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 15px'
-              }}>
-                <i className="fas fa-box" style={{ color: '#fff', fontSize: '24px' }}></i>
-              </div>
-              <h3 style={{ color: '#3B2F2F', fontSize: '28px', margin: '0 0 5px 0' }}>
-                {products.length}
-              </h3>
-              <p style={{ color: '#640d14', fontSize: '14px', margin: 0 }}>Total Products</p>
-            </div>
-          </div>
-          <div className="col-md-3 col-sm-6 mb-3">
-            <div style={{
-              background: '#fff',
-              borderRadius: '16px',
-              padding: '25px',
-              textAlign: 'center',
-              boxShadow: '0 8px 25px rgba(123, 84, 33, 0.1)',
-              border: '1px solid rgba(201, 179, 126, 0.2)'
-            }}>
-              <div style={{
-                width: '60px',
-                height: '60px',
-                background: 'linear-gradient(135deg, #C9B37E, #D4B04C)',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 15px'
-              }}>
-                <i className="fas fa-star" style={{ color: '#fff', fontSize: '24px' }}></i>
-              </div>
-              <h3 style={{ color: '#3B2F2F', fontSize: '28px', margin: '0 0 5px 0' }}>
-                {products.filter(p => p.badge === 'Premium').length}
-              </h3>
-              <p style={{ color: '#640d14', fontSize: '14px', margin: 0 }}>Premium Products</p>
-            </div>
-          </div>
-          <div className="col-md-3 col-sm-6 mb-3">
-            <div style={{
-              background: '#fff',
-              borderRadius: '16px',
-              padding: '25px',
-              textAlign: 'center',
-              boxShadow: '0 8px 25px rgba(123, 84, 33, 0.1)',
-              border: '1px solid rgba(201, 179, 126, 0.2)'
-            }}>
-              <div style={{
-                width: '60px',
-                height: '60px',
-                background: 'linear-gradient(135deg, #A63A27, #D32F2F)',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 15px'
-              }}>
-                <i className="fas fa-exclamation-triangle" style={{ color: '#fff', fontSize: '24px' }}></i>
-              </div>
-              <h3 style={{ color: '#3B2F2F', fontSize: '28px', margin: '0 0 5px 0' }}>
-                {products.filter(p => p.isOutOfStock).length}
-              </h3>
-              <p style={{ color: '#640d14', fontSize: '14px', margin: 0 }}>Out of Stock</p>
-            </div>
-          </div>
-          <div className="col-md-3 col-sm-6 mb-3">
-            <div style={{
-              background: '#fff',
-              borderRadius: '16px',
-              padding: '25px',
-              textAlign: 'center',
-              boxShadow: '0 8px 25px rgba(123, 84, 33, 0.1)',
-              border: '1px solid rgba(201, 179, 126, 0.2)'
-            }}>
-              <div style={{
-                width: '60px',
-                height: '60px',
-                background: 'linear-gradient(135deg, #3FC53A, #4CAF50)',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 15px'
-              }}>
-                <i className="fas fa-check-circle" style={{ color: '#fff', fontSize: '24px' }}></i>
-              </div>
-              <h3 style={{ color: '#3B2F2F', fontSize: '28px', margin: '0 0 5px 0' }}>
-                {products.filter(p => !p.isOutOfStock).length}
-              </h3>
-              <p style={{ color: '#640d14', fontSize: '14px', margin: 0 }}>In Stock</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Products Table */}
-        <div style={{
-          background: '#fff',
-          borderRadius: '20px',
-          padding: '30px',
-          boxShadow: '0 10px 40px rgba(123, 84, 33, 0.1)',
-          border: '1px solid rgba(201, 179, 126, 0.2)'
-        }}>
-          <h3 style={{
-            color: '#3B2F2F',
-            fontSize: '24px',
-            fontWeight: '600',
-            marginBottom: '25px',
-            fontFamily: 'serif'
-          }}>
-            <i className="fas fa-list me-2" style={{ color: '#640d14' }}></i>
-            Product Management
-          </h3>
-
-          <div className="row g-2 mb-3">
-            <div className="col-md-6">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by product name or brand..."
-                className="form-control"
-                style={{ border: '2px solid #E8EBDD', borderRadius: '12px', padding: '12px 14px', background: '#F8F5F2' }}
-              />
+        {/* Content Area */}
+        <main className="p-8 space-y-8 max-w-[1400px] mx-auto w-full">
+          <div className="flex items-center justify-between">
+            <h3 className="text-2xl font-bold text-gray-800">{activeTab}</h3>
+            <div className="flex gap-3">
+              {activeTab === 'Product Management' && (
+                <>
+                  <button
+                    onClick={() => setShowUploadModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-medium transition-colors shadow-sm"
+                  >
+                    <MdAdd className="text-lg" />
+                    Add Product
+                  </button>
+                  <button
+                    onClick={() => setShowCsvModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-sm"
+                  >
+                    <MdCloudUpload />
+                    Upload CSV
+                  </button>
+                </>
+              )}
+              {activeTab === 'Manage Videos' && (
+                <button
+                  onClick={() => setShowVideoModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium transition-colors shadow-sm"
+                >
+                  <MdVideoLibrary />
+                  Configure Videos
+                </button>
+              )}
             </div>
           </div>
 
-          {isLoading ? (
-            <div className="text-center py-5">
-              <div style={{
-                width: '60px',
-                height: '60px',
-                background: 'linear-gradient(135deg, #640d14, #9b7645)',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 20px',
-                animation: 'spin 1s linear infinite'
-              }}>
-                <i className="fas fa-spinner" style={{ color: '#fff', fontSize: '24px' }}></i>
+          {/* Stats Grid - Only show Product Management stats in Product Management tab */}
+          {activeTab === 'Product Management' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-2">
+                <p className="text-gray-500 font-medium uppercase tracking-wider text-xs text-center">Total Products</p>
+                <h4 className="text-4xl font-bold text-gray-800">{products.length}</h4>
               </div>
-              <p style={{ color: '#640d14', fontSize: '16px' }}>Loading products...</p>
+              <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-2">
+                <p className="text-gray-500 font-medium uppercase tracking-wider text-xs text-center">In Stock</p>
+                <h4 className="text-4xl font-bold text-gray-800 text-green-600">{products.filter(p => !p.isOutOfStock).length}</h4>
+              </div>
+              <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-2">
+                <p className="text-gray-500 font-medium uppercase tracking-wider text-xs text-center">Out of Stock</p>
+                <h4 className="text-4xl font-bold text-gray-800 text-red-600">{products.filter(p => p.isOutOfStock).length}</h4>
+              </div>
             </div>
-          ) : (
-            <div className="table-responsive">
-              <table className="table table-hover" style={{ margin: 0 }}>
-                <thead>
-                  <tr style={{
-                    background: 'linear-gradient(135deg, #F8F5F2, #EFE8DC)',
-                    border: 'none'
-                  }}>
-                    <th style={{
-                      border: 'none',
-                      color: '#3B2F2F',
-                      fontWeight: '600',
-                      padding: '15px',
-                      fontSize: '14px'
-                    }}>Image</th>
-                    <th style={{
-                      border: 'none',
-                      color: '#3B2F2F',
-                      fontWeight: '600',
-                      padding: '15px',
-                      fontSize: '14px'
-                    }}>Name</th>
-                    <th style={{
-                      border: 'none',
-                      color: '#3B2F2F',
-                      fontWeight: '600',
-                      padding: '15px',
-                      fontSize: '14px'
-                    }}>Brand</th>
+          )}
 
-                    <th style={{
-                      border: 'none',
-                      color: '#3B2F2F',
-                      fontWeight: '600',
-                      padding: '15px',
-                      fontSize: '14px'
-                    }}>Category</th>
-                    <th style={{
-                      border: 'none',
-                      color: '#3B2F2F',
-                      fontWeight: '600',
-                      padding: '15px',
-                      fontSize: '14px'
-                    }}>Stock</th>
-                    {/* <th style={{
-                      border: 'none',
-                      color: '#3B2F2F',
-                      fontWeight: '600',
-                      padding: '15px',
-                      fontSize: '14px'
-                    }}>Sizes</th> */}
-                    <th style={{
-                      border: 'none',
-                      color: '#3B2F2F',
-                      fontWeight: '600',
-                      padding: '15px',
-                      fontSize: '14px'
-                    }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.filter(p => {
-                    if (!searchQuery) return true;
-                    const q = searchQuery.toLowerCase();
-                    return (p.name || '').toLowerCase().includes(q) || (p.brand || '').toLowerCase().includes(q);
-                  }).length === 0 ? (
-                    <tr>
-                      <td colSpan="7" className="text-center py-5">
-                        <div style={{
-                          color: '#640d14',
-                          fontSize: '16px',
-                          opacity: 0.7
-                        }}>
-                          <i className="fas fa-box-open mb-3" style={{ fontSize: '48px', display: 'block' }}></i>
-                          No products found. Add your first product to get started.
-                        </div>
-                      </td>
-                    </tr>
-                  ) : products.filter(p => {
-                    if (!searchQuery) return true;
-                    const q = searchQuery.toLowerCase();
-                    return (p.name || '').toLowerCase().includes(q) || (p.brand || '').toLowerCase().includes(q);
-                  }).map(product => {
-                    const sizeList = Array.isArray(product.sizes) ? product.sizes : [];
-                    const sizeOutCount = sizeList.filter(sz => sz?.isOutOfStock).length;
-                    const allSizesOut = sizeList.length > 0 && sizeOutCount === sizeList.length;
-                    const finalOutOfStock = product.isOutOfStock || allSizesOut;
-                    return (
-                      <tr key={product.id} style={{
-                        borderBottom: '1px solid #E8EBDD',
-                        transition: 'all 0.3s ease'
-                      }}>
-                        <td style={{ padding: '15px' }}>
-                          <img
-                            src={(Array.isArray(product.sizes) && product.sizes.find(s => s.size === '50ml' && Array.isArray(s.images) && s.images[0])?.images?.[0])
-                              || (Array.isArray(product.sizes) && product.sizes[0] && Array.isArray(product.sizes[0].images) && product.sizes[0].images[0])
-                              || product.image}
-                            alt={product.name}
-                            style={{
-                              width: '60px',
-                              height: '60px',
-                              objectFit: 'cover',
-                              borderRadius: '8px',
-                              border: '2px solid #E8EBDD'
-                            }} />
-                        </td>
-                        <td style={{
-                          padding: '15px',
-                          color: '#3B2F2F',
-                          fontWeight: '500'
-                        }}>
-                          {product.name}
-                        </td>
-                        <td style={{
-                          padding: '15px',
-                          color: '#3B2F2F',
-                          fontWeight: '500'
-                        }}>
-                          {product.brand}
-                        </td>
+          {/* Tables Section */}
+          <div className="space-y-8">
+            {activeTab === 'Product Management' && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4">
+                  <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <MdList className="text-slate-900" />
+                    Inventory Overview
+                  </h4>
+                  <div className="relative max-w-xs w-full">
+                    <MdSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search products..."
+                      className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all"
+                    />
+                  </div>
+                </div>
 
-
-                        <td style={{ padding: '15px' }}>
-                          {(() => {
-                            const categoryInfo = getCategoryInfo(product.badge);
+                {isLoading ? (
+                  <div className="flex flex-col items-center justify-center py-20 gap-4">
+                    <div className="w-10 h-10 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
+                    <p className="text-gray-500 font-medium">Loading inventory...</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
+                          <th className="px-6 py-4">Image</th>
+                          <th className="px-6 py-4">Name</th>
+                          <th className="px-6 py-4">Brand</th>
+                          <th className="px-6 py-4">Category</th>
+                          <th className="px-6 py-4">Stock</th>
+                          <th className="px-6 py-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {products.filter(p => {
+                          if (!searchQuery) return true;
+                          const q = searchQuery.toLowerCase();
+                          return (p.name || '').toLowerCase().includes(q) || (p.brand || '').toLowerCase().includes(q);
+                        }).length === 0 ? (
+                          <tr>
+                            <td colSpan="6" className="px-6 py-20 text-center">
+                              <div className="flex flex-col items-center gap-2 text-gray-400">
+                                <MdList className="w-12 h-12" />
+                                <p className="font-medium text-lg">No products found</p>
+                                <p className="text-sm">Try adjusting your search or add a new product.</p>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          products.filter(p => {
+                            if (!searchQuery) return true;
+                            const q = searchQuery.toLowerCase();
+                            return (p.name || '').toLowerCase().includes(q) || (p.brand || '').toLowerCase().includes(q);
+                          }).map(product => {
+                            const sizeList = Array.isArray(product.sizes) ? product.sizes : [];
+                            const sizeOutCount = sizeList.filter(sz => sz?.isOutOfStock).length;
+                            const allSizesOut = sizeList.length > 0 && sizeOutCount === sizeList.length;
+                            const finalOutOfStock = product.isOutOfStock || allSizesOut;
+                            
                             return (
-                              <span style={{
-                                background: categoryInfo.bg,
-                                color: '#fff',
-                                padding: '4px 12px',
-                                borderRadius: '20px',
-                                fontSize: '12px',
-                                fontWeight: '500',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px'
-                              }}>
-                                <i className={`fas ${categoryInfo.icon}`} style={{ fontSize: '10px' }}></i>
-                                {product.badge || 'Standard'}
-                              </span>
-                            );
-                          })()}
-                        </td>
-                        <td style={{ padding: '15px' }}>
-                          <div className="d-flex flex-column gap-1">
-                            {product.isPreOrder ? (
-                              <span style={{ color: '#F59E0B', fontWeight: '600' }}>
-                                <i className="fas fa-clock me-1"></i>
-                                Pre-Order
-                              </span>
-                            ) : (
-                              <>
-                                {sizeList.length > 0 ? (
-                                  sizeList.map((sz, idx) => {
-                                    const isOOS = sz.isOutOfStock || Number(sz.stock || 0) <= 0;
+                              <tr key={product.id} className="hover:bg-gray-50 transition-colors group">
+                                <td className="px-6 py-4">
+                                  <img
+                                    src={(Array.isArray(product.sizes) && product.sizes.find(s => s.size === '50ml' && Array.isArray(s.images) && s.images[0])?.images?.[0])
+                                      || (Array.isArray(product.sizes) && product.sizes[0] && Array.isArray(product.sizes[0].images) && product.sizes[0].images[0])
+                                      || product.image}
+                                    alt={product.name}
+                                    className="w-12 h-12 object-cover rounded-lg border border-gray-200"
+                                  />
+                                </td>
+                                <td className="px-6 py-4 font-semibold text-gray-800">{product.name}</td>
+                                <td className="px-6 py-4 text-gray-600">{product.brand}</td>
+                                <td className="px-6 py-4">
+                                  {(() => {
+                                    const categoryInfo = getCategoryInfo(product.badge);
                                     return (
-                                      <div key={idx} style={{ 
-                                        fontSize: '12px', 
-                                        color: isOOS ? '#D32F2F' : '#4CAF50',
-                                        fontWeight: '600',
-                                        whiteSpace: 'nowrap'
-                                      }}>
-                                        <span style={{ opacity: 0.8 }}>{sz.size}:</span> {sz.stock || 0}
-                                        {isOOS && <span className="ms-1" style={{ fontSize: '10px' }}>(OOS)</span>}
-                                      </div>
+                                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white" style={{ background: categoryInfo.bg }}>
+                                        <i className={`fas ${categoryInfo.icon}`} style={{ fontSize: '10px' }}></i>
+                                        {product.badge || 'Standard'}
+                                      </span>
                                     );
-                                  })
-                                ) : (
-                                  <span style={{ color: '#D32F2F', fontWeight: '600' }}>
-                                    {finalOutOfStock ? '❌ Out of Stock' : '⚠️ No stock data'}
+                                  })()}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="space-y-1">
+                                    {sizeList.length > 0 ? (
+                                      sizeList.map((sz, idx) => {
+                                        const isPre = !!sz.isPreOrder;
+                                        const isOOS = !isPre && (sz.isOutOfStock || Number(sz.stock || 0) <= 0);
+                                        return (
+                                          <div key={idx} className={`text-xs font-medium ${isPre ? 'text-amber-600' : (isOOS ? 'text-red-500' : 'text-green-600')}`}>
+                                            {sz.size}: {isPre ? 'Pre-Order' : (sz.stock || 0)} {isOOS && '(OOS)'}
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      <span className="text-red-500 text-xs font-bold">
+                                        {finalOutOfStock ? 'Out of Stock' : 'No stock data'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      onClick={() => handleEditClick(product)}
+                                      className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+                                      title="Edit"
+                                    >
+                                      <MdEdit className="w-5 h-5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDelete(product.id)}
+                                      className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
+                                      title="Delete"
+                                    >
+                                      <MdDelete className="w-5 h-5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'User' && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100">
+                  <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <HiUsers className="text-slate-900" />
+                    Registered Users
+                  </h4>
+                </div>
+                {isUsersLoading ? (
+                  <div className="flex items-center justify-center py-20">
+                    <div className="w-10 h-10 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
+                          <th className="px-6 py-4">User</th>
+                          <th className="px-6 py-4">Email</th>
+                          <th className="px-6 py-4">Joined Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {users.length === 0 ? (
+                          <tr>
+                            <td colSpan="3" className="px-6 py-10 text-center text-gray-400 italic">No users registered yet</td>
+                          </tr>
+                        ) : (
+                          users.map(user => (
+                            <tr key={user.id} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-6 py-4 flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold">
+                                  {user.displayName?.charAt(0) || user.email?.charAt(0) || '?'}
+                                </div>
+                                <span className="font-semibold text-gray-800">{user.displayName || 'Anonymous'}</span>
+                              </td>
+                              <td className="px-6 py-4 text-gray-600">{user.email}</td>
+                              <td className="px-6 py-4 text-gray-500 text-sm">
+                                {user.createdAt?.seconds ? new Date(user.createdAt.seconds * 1000).toLocaleDateString() : 'N/A'}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'Orders' && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100">
+                  <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <MdReceipt className="text-slate-900" />
+                    Order History
+                  </h4>
+                </div>
+                {isOrdersLoading ? (
+                  <div className="flex items-center justify-center py-20">
+                    <div className="w-10 h-10 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
+                          <th className="px-6 py-4">Order ID</th>
+                          <th className="px-6 py-4">Customer</th>
+                          <th className="px-6 py-4">Total</th>
+                          <th className="px-6 py-4">Status</th>
+                          <th className="px-6 py-4">Date</th>
+                          <th className="px-6 py-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {orders.length === 0 ? (
+                          <tr>
+                            <td colSpan="6" className="px-6 py-10 text-center text-gray-400 italic">No orders found</td>
+                          </tr>
+                        ) : (
+                          orders.map(o => {
+                            const name = `${o?.customerInfo?.firstName || ''} ${o?.customerInfo?.lastName || ''}`.trim() || (o?.customerInfo?.email || 'Guest');
+                            return (
+                              <tr key={o.id} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-6 py-4 font-mono text-xs text-slate-500">{o.id}</td>
+                                <td className="px-6 py-4 font-medium text-gray-800">{name}</td>
+                                <td className="px-6 py-4 font-bold text-gray-800">₹{formatPrice(o.total)}</td>
+                                <td className="px-6 py-4">
+                                  <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                    o.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                  }`}>
+                                    {o.status || 'pending'}
                                   </span>
+                                </td>
+                                <td className="px-6 py-4 text-gray-500 text-xs">
+                                  {o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000).toLocaleString() : '-'}
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  <button 
+                                    onClick={() => handleDeleteOrder(o.id)}
+                                    className="p-2 text-red-400 hover:text-red-600 transition-colors"
+                                  >
+                                    <MdDelete className="w-5 h-5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'Reviews' && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100">
+                  <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <MdComment className="text-slate-900" />
+                    Customer Reviews
+                  </h4>
+                </div>
+                {isReviewsLoading ? (
+                  <div className="flex items-center justify-center py-20">
+                    <div className="w-10 h-10 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {reviews.length === 0 ? (
+                      <p className="px-6 py-10 text-center text-gray-400 italic">No reviews yet</p>
+                    ) : (
+                      reviews.map(r => (
+                        <div key={r.id} className="px-6 py-4 hover:bg-gray-50 transition-colors group">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-3">
+                              {r.image ? (
+                                <img src={r.image} className="w-10 h-10 rounded-full object-cover ring-2 ring-gray-100" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                                  <HiUserCircle className="w-8 h-8" />
+                                </div>
+                              )}
+                              <div>
+                                <p className="text-sm font-bold text-gray-800">{r.name || 'Anonymous'}</p>
+                                <div className="flex text-yellow-400 text-[10px]">
+                                  {[...Array(5)].map((_, i) => (
+                                    <i key={i} className={`fas fa-star ${i < (r.rating || 0) ? 'text-yellow-400' : 'text-gray-200'}`}></i>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => handleDeleteReview(r.id)}
+                              className="text-red-400 hover:text-red-600 transition-colors"
+                            >
+                              <MdDelete className="w-5 h-5" />
+                            </button>
+                          </div>
+                          <p className="text-sm text-gray-600 italic">"{r.message}"</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {['Brands', 'Categories', 'Nodes'].includes(activeTab) && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                  <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    {activeTab === 'Brands' && <HiBriefcase className="text-slate-900" />}
+                    {activeTab === 'Categories' && <HiOutlineViewColumns className="text-slate-900" />}
+                    {activeTab === 'Nodes' && <HiSparkles className="text-slate-900" />}
+                    Manage {activeTab}
+                  </h4>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder={`Add new ${activeTab.slice(0, -1)}...`}
+                      className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+                      value={newMetadataVal}
+                      onChange={(e) => setNewMetadataVal(e.target.value)}
+                    />
+                    <button 
+                      onClick={() => handleAddMetadata(activeTab, newMetadataVal)}
+                      disabled={isMetadataUpdating || !newMetadataVal.trim()}
+                      className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold hover:bg-slate-800 disabled:bg-slate-300 transition-colors"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+                <div className="p-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {(() => {
+                      const fieldMap = { 'Brands': 'brands', 'Categories': 'categories', 'Nodes': 'notes' };
+                      const baseMap = { 
+                        'Brands': baseBrands, 
+                        'Categories': ['Designer', 'Middle eastern', 'niche', 'Vials', 'Gift sets', 'Combo'], 
+                        'Nodes': basePerfumeNotes 
+                      };
+                      const field = fieldMap[activeTab];
+                      const customItems = customLists[field] || [];
+                      const baseItems = baseMap[activeTab];
+                      
+                      // Combine and mark base items
+                      const allItems = [
+                        ...baseItems.map(item => ({ val: item, isBase: true })),
+                        ...customItems.map(item => ({ val: item, isBase: false }))
+                      ].sort((a, b) => a.val.localeCompare(b.val));
+
+                      return allItems.map(({ val, isBase }) => (
+                        <div key={val} className="p-4 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between group hover:bg-white hover:shadow-md transition-all">
+                          <div className="flex items-center gap-3 overflow-hidden">
+                            <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                              {val.charAt(0)}
+                            </div>
+                            {editingMetadata?.type === activeTab && editingMetadata?.oldVal === val ? (
+                              <input 
+                                autoFocus
+                                className="text-xs font-bold text-slate-900 uppercase tracking-tight bg-white border border-slate-300 rounded px-1 w-full"
+                                value={editingMetadata.newVal}
+                                onChange={(e) => setEditingMetadata({ ...editingMetadata, newVal: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleUpdateMetadata(activeTab, val, editingMetadata.newVal);
+                                  if (e.key === 'Escape') setEditingMetadata(null);
+                                }}
+                              />
+                            ) : (
+                              <div className="flex flex-col overflow-hidden">
+                                <p className="text-xs font-bold text-slate-900 uppercase tracking-tight truncate">{val}</p>
+                                <span className="text-[9px] text-gray-400 font-bold uppercase">
+                                  {isBase ? 'System' : 'Custom'} • {products.filter(p => (activeTab === 'Brands' ? p.brand : (activeTab === 'Categories' ? p.badge : p.note)) === val).length} Items
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {!isBase && (
+                              <>
+                                {editingMetadata?.type === activeTab && editingMetadata?.oldVal === val ? (
+                                  <button 
+                                    onClick={() => handleUpdateMetadata(activeTab, val, editingMetadata.newVal)}
+                                    className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                  >
+                                    <MdCheckCircle className="w-4 h-4" />
+                                  </button>
+                                ) : (
+                                  <button 
+                                    onClick={() => setEditingMetadata({ type: activeTab, oldVal: val, newVal: val })}
+                                    className="p-1.5 text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                                  >
+                                    <MdEdit className="w-4 h-4" />
+                                  </button>
                                 )}
+                                <button 
+                                  onClick={() => handleDeleteMetadata(activeTab, val)}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                >
+                                  <MdDelete className="w-4 h-4" />
+                                </button>
                               </>
                             )}
                           </div>
-                        </td>
-                        {/* <td style={{ padding: '15px' }}>
-              {product.data ? (
-                <span style={{ color: '#3B2F2F', fontWeight: 400, fontSize: '13px' }}>
-                  {product.data}
-                </span>
-              ) : (
-                <span style={{ color: '#aaa', fontSize: '12px' }}>-</span>
-              )}
-            </td> */}
-
-                        <td style={{ padding: '15px' }}>
-                          <div className="d-flex gap-2">
-                            <button
-                              className="btn btn-sm"
-                              onClick={() => handleEditClick(product)}
-                              style={{
-                                background: 'linear-gradient(135deg, #640d14, #9b7645)',
-                                color: '#fff',
-                                border: 'none',
-                                borderRadius: '8px',
-                                padding: '8px 16px',
-                                fontSize: '12px',
-                                fontWeight: '500',
-                                transition: 'all 0.3s ease'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.target.style.transform = 'translateY(-1px)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.target.style.transform = 'translateY(0)';
-                              }}
-                            >
-                              <i className="fas fa-edit me-1"></i>
-                              Edit
-                            </button>
-                            <button
-                              className="btn btn-sm"
-                              onClick={() => handleDelete(product.id)}
-                              style={{
-                                background: '#fff',
-                                color: '#D32F2F',
-                                border: '2px solid #D32F2F',
-                                borderRadius: '8px',
-                                padding: '8px 16px',
-                                fontSize: '12px',
-                                fontWeight: '500',
-                                transition: 'all 0.3s ease'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.target.style.background = '#D32F2F';
-                                e.target.style.color = '#fff';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.target.style.background = '#fff';
-                                e.target.style.color = '#D32F2F';
-                              }}
-                            >
-                              <i className="fas fa-trash me-1"></i>
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {/* Purchases & Payments */}
-        <div className="mt-4" style={{
-          background: '#fff',
-          borderRadius: '20px',
-          padding: '30px',
-          boxShadow: '0 10px 40px rgba(123, 84, 33, 0.1)',
-          border: '1px solid rgba(201, 179, 126, 0.2)'
-        }}>
-          <h3 style={{
-            color: '#3B2F2F',
-            fontSize: '24px',
-            fontWeight: '600',
-            marginBottom: '20px',
-            fontFamily: 'serif'
-          }}>
-            <i className="fas fa-receipt me-2" style={{ color: '#640d14' }}></i>
-            Purchases & Payments
-          </h3>
-          {isOrdersLoading ? (
-            <div className="text-center py-4" style={{ color: '#640d14' }}>
-              <i className="fas fa-spinner fa-spin me-2"></i>
-              Loading orders...
-            </div>
-          ) : (
-            <div className="table-responsive">
-              <table className="table table-hover" style={{ margin: 0 }}>
-                <thead>
-                  <tr style={{ background: 'linear-gradient(135deg, #F8F5F2, #EFE8DC)' }}>
-                    <th style={{ border: 'none', padding: '12px', fontSize: 14, color: '#3B2F2F' }}>Date</th>
-                    <th style={{ border: 'none', padding: '12px', fontSize: 14, color: '#3B2F2F' }}>Customer</th>
-                    <th style={{ border: 'none', padding: '12px', fontSize: 14, color: '#3B2F2F' }}>Items</th>
-                    <th style={{ border: 'none', padding: '12px', fontSize: 14, color: '#3B2F2F' }}>Total</th>
-                    <th style={{ border: 'none', padding: '12px', fontSize: 14, color: '#3B2F2F' }}>Status</th>
-                    <th style={{ border: 'none', padding: '12px', fontSize: 14, color: '#3B2F2F' }}>Payment ID</th>
-                    <th style={{ border: 'none', padding: '12px', fontSize: 14, color: '#3B2F2F' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.length === 0 ? (
-                    <tr>
-                      <td colSpan="7" className="text-center py-4" style={{ color: '#640d14' }}>
-                        No orders yet
-                      </td>
-                    </tr>
-                  ) : (
-                    orders.map(o => {
-                      const dt = o.createdAt && o.createdAt.seconds ? new Date(o.createdAt.seconds * 1000) : null;
-                      const name = `${o?.customerInfo?.firstName || ''} ${o?.customerInfo?.lastName || ''}`.trim() || (o?.customerInfo?.email || 'Guest');
-                      const itemCount = Array.isArray(o.items) ? o.items.reduce((n, it) => n + (Number(it.quantity || 1)), 0) : 0;
-                      return (
-                        <tr key={o.id} style={{ borderBottom: '1px solid #E8EBDD' }}>
-                          <td style={{ padding: '12px', color: '#3B2F2F' }}>{dt ? dt.toLocaleString() : '-'}</td>
-                          <td style={{ padding: '12px', color: '#3B2F2F' }}>{name}</td>
-                          <td style={{ padding: '12px', color: '#3B2F2F' }}>{itemCount}</td>
-                          <td style={{ padding: '12px', color: '#3B2F2F', fontWeight: 600 }}>₹{formatPrice(o.total)}</td>
-                          <td style={{ padding: '12px' }}>
-                            <span style={{
-                              background: o.status === 'paid' ? 'linear-gradient(135deg, #3FC53A, #4CAF50)' : 'linear-gradient(135deg, #E91E63, #C2185B)',
-                              color: '#fff', padding: '4px 10px', borderRadius: 16, fontSize: 12, fontWeight: 600
-                            }}>
-                              {o.status || 'pending'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '12px', color: '#3B2F2F' }}>{o.paymentId || '-'}</td>
-                          <td style={{ padding: '12px' }}>
-                            <button
-                              className="btn btn-sm"
-                              onClick={() => handleDeleteOrder(o.id)}
-                              style={{ background: '#fff', color: '#D32F2F', border: '2px solid #D32F2F', borderRadius: '8px', padding: '6px 12px', fontSize: '12px' }}
-                            >
-                              <i className="fas fa-trash me-1"></i>
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {/* Testimonials Management */}
-        <div className="mt-4" style={{
-          background: '#fff',
-          borderRadius: '20px',
-          padding: '30px',
-          boxShadow: '0 10px 40px rgba(123, 84, 33, 0.1)',
-          border: '1px solid rgba(201, 179, 126, 0.2)'
-        }}>
-          <h3 style={{
-            color: '#3B2F2F',
-            fontSize: '24px',
-            fontWeight: '600',
-            marginBottom: '20px',
-            fontFamily: 'serif'
-          }}>
-            <i className="fas fa-comments me-2" style={{ color: '#640d14' }}></i>
-            Testimonials
-          </h3>
-
-          {isReviewsLoading ? (
-            <div className="text-center py-4" style={{ color: '#640d14' }}>
-              <i className="fas fa-spinner fa-spin me-2"></i> Loading testimonials...
-            </div>
-          ) : reviews.length === 0 ? (
-            <div className="text-center py-4" style={{ color: '#640d14', opacity: 0.8 }}>
-              No testimonials found.
-            </div>
-          ) : (
-            <div className="table-responsive">
-              <table className="table table-hover" style={{ margin: 0 }}>
-                <thead>
-                  <tr style={{ background: 'linear-gradient(135deg, #F8F5F2, #EFE8DC)' }}>
-                    <th style={{ border: 'none', padding: '12px', fontSize: '14px', color: '#3B2F2F' }}>User</th>
-                    <th style={{ border: 'none', padding: '12px', fontSize: '14px', color: '#3B2F2F' }}>Rating</th>
-                    <th style={{ border: 'none', padding: '12px', fontSize: '14px', color: '#3B2F2F' }}>Message</th>
-                    <th style={{ border: 'none', padding: '12px', fontSize: '14px', color: '#3B2F2F' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reviews.map(r => (
-                    <tr key={r.id} style={{ borderBottom: '1px solid #E8EBDD' }}>
-                      <td style={{ padding: '12px' }}>
-                        <div className="d-flex align-items-center gap-2">
-                          {r.image ? (
-                            <img src={r.image} alt={r.name} style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: '1px solid #E8EBDD' }} />
-                          ) : (
-                            <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#f3ede2' }}></div>
-                          )}
-                          <span style={{ color: '#3B2F2F', fontWeight: 500 }}>{r.name || 'Anonymous'}</span>
                         </div>
-                      </td>
-                      <td style={{ padding: '12px', color: '#640d14', fontWeight: 600 }}>{r.rating || 0}/5</td>
-                      <td style={{ padding: '12px', color: '#3B2F2F' }}>
-                        <span style={{ display: 'inline-block', maxWidth: 480, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {r.message}
-                        </span>
-                      </td>
-                      <td style={{ padding: '12px' }}>
-                        <button
-                          className="btn btn-sm"
-                          onClick={() => handleDeleteReview(r.id)}
-                          style={{ background: '#fff', color: '#D32F2F', border: '2px solid #D32F2F', borderRadius: '8px', padding: '6px 12px', fontSize: '12px' }}
-                        >
-                          <i className="fas fa-trash me-1"></i>
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'Manage Videos' && (
+               <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                 <div className="p-6 border-b border-gray-100">
+                   <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                     <MdVideoLibrary className="text-slate-900" />
+                     Homepage Video Assets
+                   </h4>
+                 </div>
+                 <div className="p-8 space-y-12">
+                   {/* Hero Videos Section */}
+                   <div className="space-y-6">
+                     <div className="flex items-center justify-between">
+                       <div>
+                         <p className="text-sm font-bold text-slate-900 uppercase tracking-widest">Hero Section Videos (Slider)</p>
+                         <p className="text-xs text-gray-400 font-medium">Multiple videos will appear in a slider on the homepage</p>
+                       </div>
+                       <button onClick={() => setShowVideoModal(true)} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-slate-800 transition-colors">
+                         Add/Manage Videos
+                       </button>
+                     </div>
+                     
+                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                       {currentVideos.heroVideoUrls.map((url, idx) => (
+                         <div key={idx} className="space-y-3">
+                           <div className="aspect-video bg-gray-100 rounded-2xl overflow-hidden border border-gray-200 relative group">
+                             <video src={url} className="w-full h-full object-cover" muted loop onMouseEnter={e => e.target.play()} onMouseLeave={e => e.target.pause()} />
+                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                               <button onClick={() => removeHeroVideo(url)} className="p-2 bg-white text-red-600 rounded-full shadow-xl hover:scale-110 transition-transform">
+                                 <MdDelete className="w-5 h-5" />
+                               </button>
+                             </div>
+                           </div>
+                           <p className="text-[10px] text-gray-500 font-bold uppercase text-center">Slide {idx + 1}</p>
+                         </div>
+                       ))}
+                       {currentVideos.heroVideoUrls.length === 0 && (
+                         <div className="col-span-full py-10 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center text-gray-400 gap-2">
+                           <MdVideoLibrary className="w-8 h-8 opacity-20" />
+                           <p className="text-xs font-bold uppercase tracking-widest">No hero videos uploaded</p>
+                         </div>
+                       )}
+                     </div>
+                   </div>
+
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-12 pt-8 border-t border-gray-100">
+                     {/* Stage Video */}
+                     <div className="space-y-4">
+                       <p className="text-sm font-bold text-slate-900 uppercase tracking-widest">Cinematic Stage Video</p>
+                       <div className="aspect-video bg-gray-100 rounded-2xl overflow-hidden border border-gray-200 relative group">
+                         {currentVideos.stageVideoUrl ? (
+                           <video src={currentVideos.stageVideoUrl} className="w-full h-full object-cover" muted loop onMouseEnter={e => e.target.play()} onMouseLeave={e => e.target.pause()} />
+                         ) : (
+                           <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 gap-2">
+                             <MdVideoLibrary className="w-12 h-12" />
+                             <span className="text-[10px] font-bold uppercase tracking-widest">No Video Uploaded</span>
+                           </div>
+                         )}
+                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
+                            <button onClick={() => setShowVideoModal(true)} className="px-4 py-2 bg-white text-slate-900 rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
+                               Change Video
+                            </button>
+                            {currentVideos.stageVideoUrl && (
+                              <button onClick={() => removeSingleAsset('stageVideoUrl')} className="px-4 py-2 bg-red-600 text-white rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
+                                Remove
+                              </button>
+                            )}
+                         </div>
+                       </div>
+                     </div>
+
+                     {/* Bottom Banner Image */}
+                     <div className="space-y-4">
+                       <p className="text-sm font-bold text-slate-900 uppercase tracking-widest">Bottom Banner Image</p>
+                       <div className="aspect-video bg-gray-100 rounded-2xl overflow-hidden border border-gray-200 relative group">
+                         {currentVideos.bannerImageUrl ? (
+                           <img src={currentVideos.bannerImageUrl} className="w-full h-full object-cover" />
+                         ) : (
+                           <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 gap-2">
+                             <MdCloudUpload className="w-12 h-12" />
+                             <span className="text-[10px] font-bold uppercase tracking-widest">No Image Uploaded</span>
+                           </div>
+                         )}
+                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
+                            <button onClick={() => setShowVideoModal(true)} className="px-4 py-2 bg-white text-slate-900 rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
+                               Change Image
+                            </button>
+                            {currentVideos.bannerImageUrl && (
+                              <button onClick={() => removeSingleAsset('bannerImageUrl')} className="px-4 py-2 bg-red-600 text-white rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
+                                Remove
+                              </button>
+                            )}
+                         </div>
+                       </div>
+                     </div>
+                   </div>
+
+                   {/* Exclusive Offer Banner Image */}
+                   <div className="space-y-4 pt-8 border-t border-gray-100">
+                     <p className="text-sm font-bold text-slate-900 uppercase tracking-widest">Exclusive Offer Banner Image (BannerImg.jsx)</p>
+                     <div className="aspect-[21/9] bg-gray-100 rounded-2xl overflow-hidden border border-gray-200 relative group max-w-4xl mx-auto">
+                       {currentVideos.exclusiveOfferImageUrl ? (
+                         <img src={currentVideos.exclusiveOfferImageUrl} className="w-full h-full object-cover" />
+                       ) : (
+                         <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 gap-2">
+                           <MdCloudUpload className="w-12 h-12" />
+                           <span className="text-[10px] font-bold uppercase tracking-widest">No Image Uploaded</span>
+                         </div>
+                       )}
+                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
+                          <button onClick={() => setShowVideoModal(true)} className="px-4 py-2 bg-white text-slate-900 rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
+                             Change Image
+                          </button>
+                          {currentVideos.exclusiveOfferImageUrl && (
+                            <button onClick={() => removeSingleAsset('exclusiveOfferImageUrl')} className="px-4 py-2 bg-red-600 text-white rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
+                              Remove
+                            </button>
+                          )}
+                       </div>
+                     </div>
+                   </div>
+
+                   {/* Watch and Buy Videos Section */}
+                   <div className="space-y-6 pt-8 border-t border-gray-100">
+                     <div className="flex items-center justify-between">
+                       <div>
+                         <p className="text-sm font-bold text-slate-900 uppercase tracking-widest">Watch and Buy Videos</p>
+                         <p className="text-xs text-gray-400 font-medium">Videos displayed in the "Watch and Buy" section on the homepage</p>
+                       </div>
+                       <button onClick={() => setShowVideoModal(true)} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-slate-800 transition-colors">
+                         Add/Manage Videos
+                       </button>
+                     </div>
+                     
+                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        {currentVideos.watchAndBuyVideos && currentVideos.watchAndBuyVideos.map((video, idx) => (
+                          <div key={idx} className="space-y-3">
+                            <div className="aspect-[9/16] bg-gray-100 rounded-2xl overflow-hidden border border-gray-200 relative group">
+                              <video src={video.url} className="w-full h-full object-cover" muted loop onMouseEnter={e => e.target.play()} onMouseLeave={e => e.target.pause()} />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
+                                <button onClick={() => setEditingWatchAndBuy(video)} className="p-2 bg-white text-blue-600 rounded-full shadow-xl hover:scale-110 transition-transform">
+                                  <MdEdit className="w-5 h-5" />
+                                </button>
+                                <button onClick={() => removeWatchAndBuyVideo(video.url)} className="p-2 bg-white text-red-600 rounded-full shadow-xl hover:scale-110 transition-transform">
+                                  <MdDelete className="w-5 h-5" />
+                                </button>
+                              </div>
+                            </div>
+                            {editingWatchAndBuy?.url === video.url ? (
+                              <div className="flex items-center gap-2">
+                                <input 
+                                  type="text" 
+                                  value={editingWatchAndBuy.tag} 
+                                  onChange={e => setEditingWatchAndBuy({...editingWatchAndBuy, tag: e.target.value})}
+                                  className="w-full px-2 py-1 text-[10px] border border-gray-200 rounded"
+                                />
+                                <button onClick={() => updateWatchAndBuyTag(video.url, editingWatchAndBuy.tag)} className="text-green-600"><MdCheckCircle /></button>
+                                <button onClick={() => setEditingWatchAndBuy(null)} className="text-red-600"><MdClose /></button>
+                              </div>
+                            ) : (
+                              <p className="text-[10px] text-gray-500 font-bold uppercase text-center">{video.tag}</p>
+                            )}
+                          </div>
+                        ))}
+                       {(!currentVideos.watchAndBuyVideos || currentVideos.watchAndBuyVideos.length === 0) && (
+                         <div className="col-span-full py-10 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center text-gray-400 gap-2">
+                           <MdVideoLibrary className="w-8 h-8 opacity-20" />
+                           <p className="text-xs font-bold uppercase tracking-widest">No Watch and Buy videos uploaded</p>
+                         </div>
+                       )}
+                     </div>
+                   </div>
+                 </div>
+               </div>
+            )}
+          </div>
+        </main>
       </div>
 
       {/* Upload Modal */}
       {showUploadModal && (
-        <div className="modal show d-block" tabIndex="-1" style={{
-          background: 'rgba(0, 0, 0, 0.5)',
-          backdropFilter: 'blur(10px)'
-        }}>
-          <div className="modal-dialog modal-lg">
-            <div className="modal-content" style={{
-              borderRadius: '20px',
-              border: '1px solid rgba(201, 179, 126, 0.2)',
-              boxShadow: '0 20px 60px rgba(123, 84, 33, 0.2)'
-            }}>
-              <div className="modal-header" style={{
-                borderBottom: '1px solid #E8EBDD',
-                padding: '25px 30px'
-              }}>
-                <h5 className="modal-title" style={{
-                  color: '#3B2F2F',
-                  fontWeight: '600',
-                  fontSize: '20px'
-                }}>
-                  <i className="fas fa-plus me-2" style={{ color: '#640d14' }}></i>
-                  Add New Product
-                </h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => setShowUploadModal(false)}
-                  style={{ fontSize: '18px' }}
-                />
-              </div>
-              <div className="modal-body" style={{ padding: '30px' }}>
-                <UploadItemForm onUploadSuccess={() => {
-                  fetchProducts();
-                  setShowUploadModal(false);
-                }} />
-              </div>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowUploadModal(false)}></div>
+          <div className="relative bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <h5 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <MdAdd className="text-slate-900" />
+                Add New Product
+              </h5>
+              <button onClick={() => setShowUploadModal(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <MdClose className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-8">
+              <UploadItemForm onUploadSuccess={() => {
+                fetchProducts();
+                setShowUploadModal(false);
+              }} />
             </div>
           </div>
         </div>
@@ -1535,212 +1604,86 @@ const AdminDashboard = () => {
 
       {/* CSV Upload Modal */}
       {showCsvModal && (
-        <div className="modal show d-block" tabIndex="-1" style={{
-          background: 'rgba(0, 0, 0, 0.5)',
-          backdropFilter: 'blur(10px)',
-          zIndex: 1050
-        }}>
-          <div className="modal-dialog modal-lg modal-dialog-centered">
-            <div className="modal-content" style={{
-              borderRadius: '24px',
-              border: '1px solid #e0d6c3',
-              boxShadow: '0 16px 48px rgba(123, 84, 33, 0.18)',
-              background: 'linear-gradient(135deg, #fff 80%, #f8f5f2 100%)',
-              overflow: 'hidden'
-            }}>
-              <div className="modal-header" style={{
-                borderBottom: '1px solid #f3ede2',
-                padding: '32px 36px',
-                background: 'linear-gradient(90deg, #f8f5f2 60%, #efe8dc 100%)'
-              }}>
-                <h4 className="modal-title" style={{
-                  color: '#3B2F2F',
-                  fontWeight: '700',
-                  fontSize: '22px',
-                  letterSpacing: '0.5px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px'
-                }}>
-                  <i className="fas fa-file-csv" style={{ color: '#2196F3', fontSize: 22 }}></i>
-                  Upload Products from CSV
-                </h4>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => {
-                    setShowCsvModal(false);
-                    setCsvFile(null);
-                    const fileInput = document.getElementById('csv-file-input');
-                    if (fileInput) fileInput.value = '';
-                  }}
-                  style={{ fontSize: '20px', outline: 'none' }}
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowCsvModal(false)}></div>
+          <div className="relative bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-blue-50/30">
+              <h4 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <MdCloudUpload className="text-blue-600" />
+                CSV Bulk Upload
+              </h4>
+              <button onClick={() => setShowCsvModal(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <MdClose className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Select CSV File</label>
+                <input
+                  id="csv-file-input"
+                  type="file"
+                  accept=".csv"
+                  onChange={handleCsvFileChange}
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 transition-colors"
                 />
-              </div>
-              <div className="modal-body" style={{ padding: '36px 36px 24px 36px', background: '#fff' }}>
-                <div className="mb-4">
-                  <label className="form-label" style={{ color: '#3B2F2F', fontWeight: '600', fontSize: 15, marginBottom: '12px' }}>
-                    <i className="fas fa-file me-2" style={{ color: '#2196F3' }}></i>
-                    Select CSV File
-                  </label>
-                  <input
-                    id="csv-file-input"
-                    type="file"
-                    accept=".csv"
-                    onChange={handleCsvFileChange}
-                    className="form-control"
-                    style={{
-                      border: '2px solid #E8EBDD',
-                      borderRadius: '14px',
-                      padding: '15px 18px',
-                      fontSize: '16px',
-                      background: '#F8F5F2',
-                      boxShadow: '0 2px 8px rgba(123, 84, 33, 0.04)'
-                    }}
-                  />
-                  {csvFile && (
-                    <div className="mt-2" style={{ color: '#4CAF50', fontSize: '14px' }}>
-                      <i className="fas fa-check-circle me-2"></i>
-                      Selected: {csvFile.name}
-                    </div>
-                  )}
-                </div>
-
-                {/* CSV Format Guide */}
-                <div style={{
-                  background: '#F8F5F2',
-                  borderRadius: '12px',
-                  padding: '20px',
-                  marginBottom: '20px',
-                  border: '1px solid #E8EBDD'
-                }}>
-                  <div className="d-flex justify-content-between align-items-center mb-3">
-                    <h6 style={{ color: '#3B2F2F', fontWeight: '600', margin: 0 }}>
-                      <i className="fas fa-info-circle me-2" style={{ color: '#2196F3' }}></i>
-                      CSV Format Guide
-                    </h6>
-                    <button
-                      type="button"
-                      onClick={downloadSampleCSV}
-                      className="btn btn-sm"
-                      style={{
-                        background: 'linear-gradient(135deg, #2196F3, #1976D2)',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '8px',
-                        padding: '6px 12px',
-                        fontSize: '12px',
-                        fontWeight: '600'
-                      }}
-                    >
-                      <i className="fas fa-download me-1"></i>
-                      Download Template
-                    </button>
-                  </div>
-                  <p style={{ color: '#640d14', fontSize: '13px', marginBottom: '10px', fontWeight: '600' }}>
-                    Required columns: name, brand, size, price, imageUrls
+                {csvFile && (
+                  <p className="text-xs text-green-600 font-medium flex items-center gap-1">
+                    <MdCheckCircle /> Selected: {csvFile.name}
                   </p>
-                  <p style={{ color: '#3B2F2F', fontSize: '12px', marginBottom: '8px' }}>
-                    <strong>Optional columns:</strong> data (description), badge (category), note (perfume note), gender, oldPrice, stock, isOutOfStock, tags
-                  </p>
-                  <p style={{ color: '#3B2F2F', fontSize: '12px', marginBottom: '8px' }}>
-                    <strong>Image URLs:</strong> Comma or semicolon separated (e.g., "url1,url2,url3")
-                  </p>
-                  <p style={{ color: '#3B2F2F', fontSize: '12px', marginBottom: '8px' }}>
-                    <strong>Tags:</strong> Comma or semicolon separated (e.g., "Top Sales,New Arrivals")
-                  </p>
-                  <p style={{ color: '#3B2F2F', fontSize: '12px' }}>
-                    <strong>Note:</strong> Multiple sizes for the same product (same name+brand) will be grouped automatically
-                  </p>
-                </div>
-
-                {/* Progress Indicator */}
-                {isCsvUploading && csvUploadProgress.total > 0 && (
-                  <div className="mb-3">
-                    <div className="d-flex justify-content-between mb-2">
-                      <span style={{ color: '#3B2F2F', fontSize: '14px', fontWeight: '600' }}>
-                        Uploading products...
-                      </span>
-                      <span style={{ color: '#640d14', fontSize: '14px', fontWeight: '600' }}>
-                        {csvUploadProgress.current} / {csvUploadProgress.total}
-                      </span>
-                    </div>
-                    <div className="progress" style={{ height: '24px', borderRadius: '12px', overflow: 'hidden' }}>
-                      <div
-                        className="progress-bar"
-                        role="progressbar"
-                        style={{
-                          width: `${(csvUploadProgress.current / csvUploadProgress.total) * 100}%`,
-                          background: 'linear-gradient(135deg, #2196F3, #1976D2)',
-                          transition: 'width 0.3s ease'
-                        }}
-                      >
-                        {Math.round((csvUploadProgress.current / csvUploadProgress.total) * 100)}%
-                      </div>
-                    </div>
-                  </div>
                 )}
               </div>
-              <div className="modal-footer" style={{
-                borderTop: '1px solid #f3ede2',
-                padding: '28px 36px',
-                background: '#f8f5f2'
-              }}>
-                <button
-                  className="btn"
-                  onClick={() => {
-                    setShowCsvModal(false);
-                    setCsvFile(null);
-                    const fileInput = document.getElementById('csv-file-input');
-                    if (fileInput) fileInput.value = '';
-                  }}
-                  disabled={isCsvUploading}
-                  style={{
-                    background: '#fff',
-                    color: '#640d14',
-                    border: '2px solid #640d14',
-                    borderRadius: '14px',
-                    padding: '12px 28px',
-                    fontWeight: '700',
-                    fontSize: '16px',
-                    marginRight: '10px',
-                    boxShadow: '0 2px 8px rgba(123, 84, 33, 0.04)',
-                    opacity: isCsvUploading ? 0.6 : 1
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="btn"
-                  onClick={handleCsvUpload}
-                  disabled={isCsvUploading || !csvFile}
-                  style={{
-                    background: isCsvUploading || !csvFile
-                      ? '#C9B37E'
-                      : 'linear-gradient(135deg, #2196F3, #1976D2)',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '14px',
-                    padding: '12px 28px',
-                    fontWeight: '700',
-                    fontSize: '16px',
-                    boxShadow: '0 4px 16px rgba(33, 150, 243, 0.10)',
-                    cursor: isCsvUploading || !csvFile ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  {isCsvUploading ? (
-                    <>
-                      <i className="fas fa-spinner fa-spin me-2"></i>
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fas fa-upload me-2"></i>
-                      Upload CSV
-                    </>
-                  )}
-                </button>
+
+              <div className="bg-blue-50 rounded-xl p-5 border border-blue-100 space-y-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <p className="font-bold text-blue-800 flex items-center gap-2">
+                    <MdError className="text-blue-600" />
+                    CSV Format Guide
+                  </p>
+                  <button
+                    onClick={downloadSampleCSV}
+                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-blue-600 hover:text-blue-800"
+                  >
+                    <MdFileDownload className="w-4 h-4" />
+                    Download Template
+                  </button>
+                </div>
+                <ul className="space-y-1 text-blue-700 text-xs">
+                  <li>• Required: <span className="font-bold">name, brand, size, price, imageUrls</span></li>
+                  <li>• Image URLs: Comma separated (max 4 per product)</li>
+                  <li>• Products with same Name + Brand will be grouped by sizes</li>
+                </ul>
               </div>
+
+              {isCsvUploading && csvUploadProgress.total > 0 && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-bold text-gray-600">
+                    <span>Processing items...</span>
+                    <span>{csvUploadProgress.current} / {csvUploadProgress.total}</span>
+                  </div>
+                  <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-blue-600 transition-all duration-300"
+                      style={{ width: `${(csvUploadProgress.current / csvUploadProgress.total) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="px-8 py-6 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                onClick={() => setShowCsvModal(false)}
+                className="px-6 py-2.5 text-sm font-bold text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCsvUpload}
+                disabled={isCsvUploading || !csvFile}
+                className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-200 transition-all flex items-center gap-2"
+              >
+                {isCsvUploading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <MdCloudUpload />}
+                {isCsvUploading ? 'Uploading...' : 'Start Upload'}
+              </button>
             </div>
           </div>
         </div>
@@ -1748,532 +1691,233 @@ const AdminDashboard = () => {
 
       {/* Video Management Modal */}
       {showVideoModal && (
-        <div className="modal show d-block" tabIndex="-1" style={{
-          background: 'rgba(0, 0, 0, 0.5)',
-          backdropFilter: 'blur(10px)',
-          zIndex: 1050
-        }}>
-          <div className="modal-dialog modal-lg modal-dialog-centered">
-            <div className="modal-content" style={{
-              borderRadius: '24px',
-              border: '1px solid #e0d6c3',
-              boxShadow: '0 16px 48px rgba(123, 84, 33, 0.18)',
-              background: 'linear-gradient(135deg, #fff 80%, #f8f5f2 100%)',
-              overflow: 'hidden'
-            }}>
-              <div className="modal-header" style={{
-                borderBottom: '1px solid #f3ede2',
-                padding: '32px 36px',
-                background: 'linear-gradient(90deg, #f8f5f2 60%, #efe8dc 100%)'
-              }}>
-                <h4 className="modal-title" style={{
-                  color: '#3B2F2F',
-                  fontWeight: '700',
-                  fontSize: '22px',
-                  letterSpacing: '0.5px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px'
-                }}>
-                  <i className="fas fa-video" style={{ color: '#FF6B35', fontSize: 22 }}></i>
-                  Manage Homepage Videos
-                </h4>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => setShowVideoModal(false)}
-                  style={{ fontSize: '20px', outline: 'none' }}
-                />
-              </div>
-              <div className="modal-body" style={{ padding: '36px 36px 24px 36px', background: '#fff' }}>
-                <div className="row g-4">
-                  {/* Hero Video */}
-                  <div className="col-md-4">
-                    <div style={{
-                      background: '#F8F5F2',
-                      borderRadius: '16px',
-                      padding: '20px',
-                      border: '2px solid #E8EBDD'
-                    }}>
-                      <h6 style={{ color: '#3B2F2F', fontWeight: '600', marginBottom: '15px' }}>
-                        <i className="fas fa-play-circle me-2" style={{ color: '#FF6B35' }}></i>
-                        Hero Video
-                      </h6>
-                      {currentVideos.heroVideoUrl && (
-                        <div style={{ marginBottom: '15px' }}>
-                          <video
-                            src={currentVideos.heroVideoUrl}
-                            style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px' }}
-                            muted
-                          />
-                        </div>
-                      )}
-                      <input
-                        type="file"
-                        accept="video/*"
-                        onChange={(e) => setVideoFiles(prev => ({ ...prev, heroVideo: e.target.files[0] }))}
-                        className="form-control"
-                        style={{
-                          border: '2px solid #E8EBDD',
-                          borderRadius: '12px',
-                          padding: '10px',
-                          fontSize: '14px',
-                          background: '#fff'
-                        }}
-                      />
-                    </div>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowVideoModal(false)}></div>
+          <div className="relative bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-orange-50/30">
+              <h4 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <MdVideoLibrary className="text-orange-500" />
+                Manage Homepage Assets
+              </h4>
+              <button onClick={() => setShowVideoModal(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <MdClose className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-8 overflow-y-auto space-y-10">
+              {/* Hero Videos Upload */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Add Hero Slider Videos</p>
+                  <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-1 rounded-full font-bold">Multiple Allowed</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 flex flex-col items-center justify-center gap-3 hover:border-orange-300 transition-colors relative">
+                    <MdCloudUpload className="w-10 h-10 text-gray-300" />
+                    <p className="text-xs font-bold text-gray-400 uppercase">Click to upload new video(s)</p>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      multiple
+                      onChange={(e) => setVideoFiles(prev => ({ ...prev, heroVideos: [...prev.heroVideos, ...Array.from(e.target.files)] }))}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
                   </div>
-
-                  {/* Stage Video */}
-                  <div className="col-md-4">
-                    <div style={{
-                      background: '#F8F5F2',
-                      borderRadius: '16px',
-                      padding: '20px',
-                      border: '2px solid #E8EBDD'
-                    }}>
-                      <h6 style={{ color: '#3B2F2F', fontWeight: '600', marginBottom: '15px' }}>
-                        <i className="fas fa-film me-2" style={{ color: '#FF6B35' }}></i>
-                        Stage Video
-                      </h6>
-                      {currentVideos.stageVideoUrl && (
-                        <div style={{ marginBottom: '15px' }}>
-                          <video
-                            src={currentVideos.stageVideoUrl}
-                            style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px' }}
-                            muted
-                          />
-                        </div>
-                      )}
-                      <input
-                        type="file"
-                        accept="video/*"
-                        onChange={(e) => setVideoFiles(prev => ({ ...prev, stageVideo: e.target.files[0] }))}
-                        className="form-control"
-                        style={{
-                          border: '2px solid #E8EBDD',
-                          borderRadius: '12px',
-                          padding: '10px',
-                          fontSize: '14px',
-                          background: '#fff'
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Banner Video */}
-                  <div className="col-md-4">
-                    <div style={{
-                      background: '#F8F5F2',
-                      borderRadius: '16px',
-                      padding: '20px',
-                      border: '2px solid #E8EBDD'
-                    }}>
-                      <h6 style={{ color: '#3B2F2F', fontWeight: '600', marginBottom: '15px' }}>
-                        <i className="fas fa-image me-2" style={{ color: '#FF6B35' }}></i>
-                        Banner Video
-                      </h6>
-                      {currentVideos.bannerVideoUrl && (
-                        <div style={{ marginBottom: '15px' }}>
-                          <video
-                            src={currentVideos.bannerVideoUrl}
-                            style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px' }}
-                            muted
-                          />
-                        </div>
-                      )}
-                      <input
-                        type="file"
-                        accept="video/*"
-                        onChange={(e) => setVideoFiles(prev => ({ ...prev, bannerVideo: e.target.files[0] }))}
-                        className="form-control"
-                        style={{
-                          border: '2px solid #E8EBDD',
-                          borderRadius: '12px',
-                          padding: '10px',
-                          fontSize: '14px',
-                          background: '#fff'
-                        }}
-                      />
-                    </div>
+                  <div className="space-y-2 max-h-[150px] overflow-y-auto no-scrollbar">
+                    {videoFiles.heroVideos.map((file, i) => (
+                      <div key={i} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border border-gray-100">
+                        <span className="text-xs font-medium truncate max-w-[200px]">{file.name}</span>
+                        <button 
+                          onClick={() => setVideoFiles(prev => ({ ...prev, heroVideos: prev.heroVideos.filter((_, idx) => idx !== i) }))}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <MdClose />
+                        </button>
+                      </div>
+                    ))}
+                    {videoFiles.heroVideos.length === 0 && (
+                      <p className="text-[10px] text-gray-400 italic text-center py-4">No new videos selected</p>
+                    )}
                   </div>
                 </div>
+              </div>
 
-                <div style={{
-                  background: '#FFF8E1',
-                  borderRadius: '12px',
-                  padding: '20px',
-                  marginTop: '20px',
-                  border: '1px solid #FFE082'
-                }}>
-                  <p style={{ color: '#3B2F2F', fontSize: '14px', margin: 0 }}>
-                    <i className="fas fa-info-circle me-2" style={{ color: '#FF6B35' }}></i>
-                    <strong>Note:</strong> Videos will be uploaded to both Firebase Storage and Cloudinary for optimal performance.
-                    Only select files if you want to replace the current videos. Leave empty to keep existing videos.
-                  </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                {/* Stage Video */}
+                <div className="space-y-4">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Update Stage Video</p>
+                  <div className="aspect-video bg-gray-100 rounded-xl overflow-hidden border border-gray-200">
+                    {videoFiles.stageVideo ? (
+                      <div className="w-full h-full flex items-center justify-center bg-green-50 text-green-600 text-xs font-bold">
+                        {videoFiles.stageVideo.name}
+                      </div>
+                    ) : (
+                      currentVideos.stageVideoUrl ? (
+                        <video src={currentVideos.stageVideoUrl} className="w-full h-full object-cover" muted />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                          <MdVideoLibrary className="w-12 h-12" />
+                        </div>
+                      )
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => setVideoFiles(prev => ({ ...prev, stageVideo: e.target.files[0] }))}
+                    className="w-full text-xs file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:uppercase file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200 cursor-pointer"
+                  />
+                </div>
+
+                {/* Banner Image */}
+                <div className="space-y-4">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Update Bottom Banner Image</p>
+                  <div className="aspect-video bg-gray-100 rounded-xl overflow-hidden border border-gray-200">
+                    {videoFiles.bannerImage ? (
+                      <div className="w-full h-full flex items-center justify-center bg-green-50 text-green-600 text-xs font-bold">
+                        {videoFiles.bannerImage.name}
+                      </div>
+                    ) : (
+                      currentVideos.bannerImageUrl ? (
+                        <img src={currentVideos.bannerImageUrl} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                          <MdCloudUpload className="w-12 h-12" />
+                        </div>
+                      )
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setVideoFiles(prev => ({ ...prev, bannerImage: e.target.files[0] }))}
+                    className="w-full text-xs file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:uppercase file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200 cursor-pointer"
+                  />
+                </div>
+
+                {/* Exclusive Offer Image */}
+                <div className="space-y-4">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Update Exclusive Offer Image (BannerImg.jsx)</p>
+                  <div className="aspect-video bg-gray-100 rounded-xl overflow-hidden border border-gray-200">
+                    {videoFiles.exclusiveOfferImage ? (
+                      <div className="w-full h-full flex items-center justify-center bg-green-50 text-green-600 text-xs font-bold">
+                        {videoFiles.exclusiveOfferImage.name}
+                      </div>
+                    ) : (
+                      currentVideos.exclusiveOfferImageUrl ? (
+                        <img src={currentVideos.exclusiveOfferImageUrl} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300">
+                          <MdCloudUpload className="w-12 h-12" />
+                        </div>
+                      )
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setVideoFiles(prev => ({ ...prev, exclusiveOfferImage: e.target.files[0] }))}
+                    className="w-full text-xs file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:uppercase file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200 cursor-pointer"
+                  />
                 </div>
               </div>
-              <div className="modal-footer" style={{
-                borderTop: '1px solid #f3ede2',
-                padding: '28px 36px',
-                background: '#f8f5f2'
-              }}>
-                <button
-                  className="btn"
-                  onClick={() => setShowVideoModal(false)}
-                  disabled={isVideoUploading}
-                  style={{
-                    background: '#fff',
-                    color: '#640d14',
-                    border: '2px solid #640d14',
-                    borderRadius: '14px',
-                    padding: '12px 28px',
-                    fontWeight: '700',
-                    fontSize: '16px',
-                    marginRight: '10px',
-                    boxShadow: '0 2px 8px rgba(123, 84, 33, 0.04)',
-                    opacity: isVideoUploading ? 0.6 : 1
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="btn"
-                  onClick={handleVideoUpload}
-                  disabled={isVideoUploading || (!videoFiles.heroVideo && !videoFiles.stageVideo && !videoFiles.bannerVideo)}
-                  style={{
-                    background: isVideoUploading
-                      ? '#C9B37E'
-                      : 'linear-gradient(135deg, #FF6B35, #F7931E)',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '14px',
-                    padding: '12px 28px',
-                    fontWeight: '700',
-                    fontSize: '16px',
-                    boxShadow: '0 4px 16px rgba(255, 107, 53, 0.10)',
-                    cursor: isVideoUploading ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  {isVideoUploading ? (
-                    <>
-                      <i className="fas fa-spinner fa-spin me-2"></i>
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fas fa-upload me-2"></i>
-                      Upload Videos
-                    </>
-                  )}
-                </button>
+
+              {/* Watch and Buy Video Upload Section */}
+              <div className="space-y-6 pt-8 border-t border-gray-100">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Add Watch and Buy Video</p>
+                  <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">Single Upload per Tag</span>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Video File</label>
+                    <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 flex flex-col items-center justify-center gap-3 hover:border-blue-300 transition-colors relative aspect-video">
+                      {videoFiles.watchAndBuyVideo ? (
+                        <div className="text-center">
+                          <MdCheckCircle className="w-8 h-8 text-green-500 mx-auto" />
+                          <p className="text-[10px] font-bold text-green-600 mt-2 truncate max-w-[150px]">{videoFiles.watchAndBuyVideo.name}</p>
+                        </div>
+                      ) : (
+                        <>
+                          <MdVideoLibrary className="w-8 h-8 text-gray-300" />
+                          <p className="text-[10px] font-bold text-gray-400 uppercase">Select Video</p>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="video/*"
+                        onChange={(e) => setVideoFiles(prev => ({ ...prev, watchAndBuyVideo: e.target.files[0] }))}
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Video Tag / Title</label>
+                    <input
+                      type="text"
+                      value={watchAndBuyTag}
+                      onChange={(e) => setWatchAndBuyTag(e.target.value)}
+                      placeholder="e.g. New Arrival, Best Seller"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+                    />
+                    <p className="text-[10px] text-gray-400 italic">This tag will appear below the video on the homepage.</p>
+                  </div>
+                </div>
               </div>
+            </div>
+            <div className="px-8 py-6 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                onClick={() => setShowVideoModal(false)}
+                className="px-6 py-2.5 text-sm font-bold text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleVideoUpload}
+                disabled={isVideoUploading || (!videoFiles.heroVideos.length && !videoFiles.stageVideo && !videoFiles.bannerImage && !videoFiles.watchAndBuyVideo && !videoFiles.exclusiveOfferImage)}
+                className="px-8 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-lg text-sm font-bold shadow-lg shadow-orange-100 transition-all flex items-center gap-2"
+              >
+                {isVideoUploading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <MdCloudUpload />}
+                {isVideoUploading ? 'Uploading Assets...' : 'Save All Changes'}
+              </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Edit Modal */}
       {editItem && (
-        <div className="fixed inset-0 z-[1050] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-
-          <div className="bg-white w-full max-w-5xl rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.1)] border border-neutral-100 flex flex-col max-h-[95vh]">
-
-            {/* Header */}
-            <div className="bg-neutral-900 py-8 px-8 flex items-center justify-between">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setEditItem(null)}></div>
+          <div className="relative bg-white w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-slate-900 text-white">
               <div>
-                <h3 className="text-white text-2xl font-light tracking-widest uppercase font-serif">
-                  Edit Product
-                </h3>
-                <p className="text-neutral-400 text-xs mt-1 tracking-widest uppercase">
-                  Update Inventory Item
-                </p>
+                <h4 className="text-xl font-bold tracking-tight">Edit Product</h4>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Inventory Management</p>
               </div>
-
-              <button
-                className="w-10 h-10 rounded-full flex items-center justify-center text-white hover:bg-white/10 transition"
-                onClick={() => setEditItem(null)}
-              >
-                <i className="fas fa-times"></i>
+              <button onClick={() => setEditItem(null)} className="text-slate-400 hover:text-white transition-colors">
+                <MdClose className="w-6 h-6" />
               </button>
             </div>
-
-
-            {/* Body */}
-            <div className="p-10 overflow-y-auto space-y-10">
-
-              {/* Basic Info */}
-              <section className="space-y-6">
-                <h4 className="text-neutral-900 text-sm font-bold tracking-widest uppercase border-b border-neutral-100 pb-2">
-                  01. Essential Details
-                </h4>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold tracking-[0.2em] text-neutral-500 uppercase">
-                      Product Name
-                    </label>
-                    <input
-                      name="name"
-                      value={formData.name || ''}
-                      onChange={handleFormChange}
-                      className="bg-neutral-50 rounded-xl p-3 border-none focus:ring-2 focus:ring-neutral-900 outline-none"
-                    />
-                  </div>
-
-
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold tracking-[0.2em] text-neutral-500 uppercase">
-                      Brand
-                    </label>
-                    <select
-                      name="brand"
-                      value={formData.brand || ''}
-                      onChange={handleFormChange}
-                      className="bg-neutral-50 rounded-xl p-3 border-none focus:ring-2 focus:ring-neutral-900 outline-none"
-                    >
-                      <option value="">Select Brand</option>
-                      {brands.map(b => (
-                        <option key={b} value={b}>{b}</option>
-                      ))}
-                    </select>
-                  </div>
-
-
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold tracking-[0.2em] text-neutral-500 uppercase">
-                      Category
-                    </label>
-                    <select
-                      name="badge"
-                      value={formData.badge || ''}
-                      onChange={handleFormChange}
-                      className="bg-neutral-50 rounded-xl p-3 border-none focus:ring-2 focus:ring-neutral-900 outline-none"
-                    >
-                      <option value="">Select Category</option>
-                      <option value="Designer">Designer</option>
-                      <option value="Middle eastern">Middle eastern</option>
-                      <option value="niche">niche</option>
-                      <option value="Vials">Vials</option>
-                      <option value="Gift sets">Gift sets</option>
-                      <option value="Combo">Combo</option>
-                      <option value="custom">custom</option>
-                    </select>
-                    {formData.badge === 'custom' && (
-                      <input
-                        name="customBadge"
-                        value={formData.customBadge || ''}
-                        onChange={handleFormChange}
-                        placeholder="Enter custom category"
-                        className="mt-2 bg-neutral-50 rounded-xl p-3 border-none focus:ring-2 focus:ring-neutral-900 outline-none"
-                      />
-                    )}
-                  </div>
-
-
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold tracking-[0.2em] text-neutral-500 uppercase">
-                      Fragrance Note
-                    </label>
-                    <select
-                      name="note"
-                      value={formData.note || ''}
-                      onChange={handleFormChange}
-                      className="bg-neutral-50 rounded-xl p-3 border-none focus:ring-2 focus:ring-neutral-900 outline-none"
-                    >
-                      <option value="">Select Note</option>
-                      {perfumeNotes.map(n => (
-                        <option key={n} value={n}>{n}</option>
-                      ))}
-                    </select>
-                    {formData.note === 'Custom' && (
-                      <input
-                        name="customNote"
-                        value={formData.customNote || ''}
-                        onChange={handleFormChange}
-                        placeholder="Enter custom perfume node"
-                        className="mt-2 bg-neutral-50 rounded-xl p-3 border-none focus:ring-2 focus:ring-neutral-900 outline-none"
-                      />
-                    )}
-                  </div>
-
-                </div>
-              </section>
-
-
-              {/* Variants */}
-              <section className="space-y-6">
-                <h4 className="text-neutral-900 text-sm font-bold tracking-widest uppercase border-b border-neutral-100 pb-2">
-                  02. Variants & Inventory
-                </h4>
-
-                <div className="space-y-8">
-                  {formData.sizes?.map((sz, idx) => (
-                    <div key={idx} className="p-6 bg-neutral-50 rounded-2xl border border-neutral-100">
-
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-
-                        {/* Size Select */}
-                        <div className="flex flex-col gap-2">
-                          <label className="text-[10px] font-bold uppercase text-neutral-500 ml-1">Size</label>
-                          <select
-                            value={sz.size}
-                            onChange={e => handleSizeChange(idx, 'size', e.target.value)}
-                            className="bg-white rounded-lg p-3 text-sm border-none focus:ring-2 focus:ring-neutral-900"
-                          >
-                            <option value="">Select Size</option>
-                            <option value="10ml">10ml</option>
-                            <option value="20ml">20ml</option>
-                            <option value="50ml">50ml</option>
-                            <option value="100ml">100ml</option>
-                            <option value="custom">Custom</option>
-                          </select>
-                        </div>
-
-                        {/* Current Price */}
-                        <div className="flex flex-col gap-2">
-                          <label className="text-[10px] font-bold uppercase text-neutral-500 ml-1">Price ($)</label>
-                          <input
-                            type="number"
-                            value={sz.price}
-                            placeholder="0.00"
-                            onChange={e => handleSizeChange(idx, 'price', e.target.value)}
-                            className="bg-white rounded-lg p-3 text-sm border-none focus:ring-2 focus:ring-neutral-900"
-                          />
-                        </div>
-
-                        {/* Old Price */}
-                        <div className="flex flex-col gap-2">
-                          <label className="text-[10px] font-bold uppercase text-neutral-500 ml-1">Old Price ($)</label>
-                          <input
-                            type="number"
-                            value={sz.oldPrice}
-                            placeholder="0.00"
-                            onChange={e => handleSizeChange(idx, 'oldPrice', e.target.value)}
-                            className="bg-white rounded-lg p-3 text-sm border-none focus:ring-2 focus:ring-neutral-900"
-                          />
-                        </div>
-
-                        {/* Stock Count */}
-                        {!formData.isPreOrder && (
-                          <div className="flex flex-col gap-2">
-                            <label className="text-[10px] font-bold uppercase text-neutral-500 ml-1">Inventory (Stock)</label>
-                            <input
-                              type="number"
-                              value={sz.stock}
-                              placeholder="0"
-                              onChange={e => handleSizeChange(idx, 'stock', e.target.value)}
-                              className="bg-white rounded-lg p-3 text-sm border-none focus:ring-2 focus:ring-neutral-900"
-                            />
-                          </div>
-                        )}
-
-                      </div>
-
-                      {/* Image Upload Section */}
-                      <div className="mt-6 pt-6 border-t border-neutral-200/50">
-                        <label className="text-[10px] font-bold uppercase text-neutral-500 block mb-3 ml-1">
-                          Variant Images
-                        </label>
-
-                        <input
-                          type="file"
-                          multiple
-                          accept="image/*"
-                          className="text-xs file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:uppercase file:bg-neutral-900 file:text-white hover:file:bg-neutral-700 cursor-pointer"
-                          onChange={e => handleSizeImagesChange(idx, e.target.files)}
-                        />
-
-                        <div className="flex gap-3 mt-4 flex-wrap">
-                          {sz.imagesPreview?.map((src, i) => (
-                            <div key={i} className="relative group w-20 h-24 rounded-lg overflow-hidden border border-neutral-200">
-                              <img src={src} className="w-full h-full object-cover" alt={`Preview ${i}`} />
-                              <button
-                                type="button"
-                                className="absolute inset-0 bg-black/60 text-white text-[10px] font-bold uppercase opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={() => handleRemoveSizeImage(idx, i)}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-
-              {/* Order Type & Gender */}
-              <section className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="flex flex-col gap-4">
-                    <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">Order Type</label>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="checkbox"
-                          name="isPreOrder"
-                          className="w-5 h-5 accent-neutral-900 rounded"
-                          checked={formData.isPreOrder}
-                          onChange={handleFormChange}
-                        />
-                        <span className="text-xs uppercase tracking-tighter text-neutral-600 group-hover:text-black transition-colors">Pre-Order Item</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* Description */}
-              <section>
-                <label className="text-[10px] font-bold tracking-[0.2em] text-neutral-500 uppercase">
-                  Product Narrative
-                </label>
-
-                <textarea
-                  name="data"
-                  rows="4"
-                  value={formData.data}
-                  onChange={handleFormChange}
-                  className="mt-2 w-full bg-neutral-50 rounded-xl p-4 border-none focus:ring-2 focus:ring-neutral-900 outline-none"
-                />
-              </section>
-
+            
+            <div className="flex-1 overflow-y-auto p-8">
+              <UploadItemForm 
+                editProduct={editItem} 
+                onUploadSuccess={() => {
+                  fetchProducts();
+                  setEditItem(null);
+                }} 
+              />
             </div>
-
-
-            {/* Footer */}
-            <div className="p-6 border-t border-neutral-100 flex justify-end gap-4">
-
-              <button
-                className="px-8 py-3 border border-neutral-300 rounded-full text-sm font-bold hover:bg-neutral-100"
-                onClick={() => setEditItem(null)}
-              >
-                Cancel
-              </button>
-
-
-              <button
-                onClick={handleUpdate}
-                disabled={isUpdating}
-                className="px-10 py-3 bg-neutral-900 text-white rounded-full text-sm font-bold hover:bg-black transition"
-              >
-                {isUpdating ? "Updating..." : "Save Changes"}
-              </button>
-
-            </div>
-
           </div>
         </div>
       )}
 
       <style>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
+        .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: #374151; border-radius: 20px; }
       `}</style>
     </div>
   );

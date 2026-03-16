@@ -1,61 +1,50 @@
 import React from "react";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { Autoplay, Pagination } from "swiper/modules";
-import "swiper/css";
-import "swiper/css/pagination";
-import "./FeatureBoxes.css";
+import {
+  GiPerfumeBottle,
+  GiRose,
+  GiCrystalBall,
+  GiSparkles,
+} from "react-icons/gi";
+import { MdLocalShipping } from "react-icons/md";
+import { FaLeaf } from "react-icons/fa";
 
-const featureData = [
-  { iconClass: "icon-delivery", title: "Free Shipping", tag: "Global" },
-  { iconClass: "icon-shield", title: "Secure Payment", tag: "Encrypted" },
-  { iconClass: "icon-star", title: "Premium Quality", tag: "Certified" },
-  { iconClass: "icon-gift", title: "Gift Wrapping", tag: "Luxury" },
-];
+const PerfumeInfinityBanner = () => {
+  const items = [
+    { icon: <GiPerfumeBottle />, text: "Luxury Fragrance" },
+    { icon: <GiRose />, text: "Handcrafted Perfume" },
+    { icon: <GiSparkles />, text: "Signature Scents" },
+    { icon: <MdLocalShipping />, text: "Fast Shipping" },
+    { icon: <FaLeaf />, text: "Premium Ingredients" },
+    { icon: <GiCrystalBall />, text: "Long Lasting Essence" },
+  ];
 
-const FeaturesSlider = ( ) => {
   return (
-    <section className="blade-section">
-      <div className="blade-wrapper">
-        <Swiper
-          modules={[Pagination, Autoplay]}
-          spaceBetween={24}
-          slidesPerView={4}
-          autoplay={{ delay: 4500, disableOnInteraction: false }}
-          pagination={{ clickable: true, dynamicBullets: true }}
-          breakpoints={{
-            0: { slidesPerView: 1 },
-            640: { slidesPerView: 2 },
-            1024: { slidesPerView: 3 },
-            1200: { slidesPerView: 4 },
-          }}
-          className="blade-swiper"
-        >
-          {featureData.map((item, index) => (
-            <SwiperSlide key={index}>
-              <div className="blade-card">
+    <div className="relative w-full overflow-hidden border-y border-neutral-200 bg-[#640d14]/5 ">
 
-                <div className="blade-icon-box">
-                  <div className="blade-icon-aura"></div>
-                  <i className={item.iconClass}></i>
-                </div>
+      {/* Edge gradient fade (luxury effect) */}
+      <div className="pointer-events-none absolute left-0 top-0 h-full w-32 bg-gradient-to-r from-white to-transparent z-10"></div>
+      <div className="pointer-events-none absolute right-0 top-0 h-full w-32 bg-gradient-to-l from-white to-transparent z-10"></div>
 
-                <div className="blade-content">
-                  <p className="blade-tag">{item.tag}</p>
-                  <h3 className="blade-title">{item.title}</h3>
-                  <span className="blade-line"></span>
-                </div>
+      <div className="flex whitespace-nowrap animate-marquee hover:[animation-play-state:paused] py-4">
 
-                <button className="blade-action">
-                  Explore
-                  <i className="icon-arrow-right"></i>
-                </button>
-              </div>
-            </SwiperSlide>
-          ))}
-        </Swiper>
+        {[...items, ...items].map((item, index) => (
+          <div
+            key={index}
+            className="flex items-center gap-3 mx-8 text-[#640d14]"
+          >
+            <span className="text-lg md:text-xl">{item.icon}</span>
+
+            <span className="text-[11px] md:text-[13px] font-semibold uppercase tracking-[0.35em]">
+              {item.text}
+            </span>
+
+            <span className="opacity-50 text-lg">•</span>
+          </div>
+        ))}
+
       </div>
-    </section>
+    </div>
   );
 };
 
-export default FeaturesSlider;
+export default PerfumeInfinityBanner;

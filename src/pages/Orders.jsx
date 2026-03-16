@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../components/firebase';
 import { Link, useLocation } from 'react-router-dom';
 import './Orders.css';
@@ -11,6 +11,38 @@ function Orders() {
   const [statusFilter, setStatusFilter] = useState('all'); // Filter by status
   const location = useLocation();
   const successState = location.state && location.state.orderId ? location.state : null;
+  const [reviewItem, setReviewItem] = useState(null);
+  const [rating, setRating] = useState(5);
+  const [reviewText, setReviewText] = useState('');
+  const [submitReviewLoading, setSubmitReviewLoading] = useState(false);
+
+  const handleSubmitReview = async (e) => {
+    e.preventDefault();
+    if (!reviewItem || !auth.currentUser) return;
+    setSubmitReviewLoading(true);
+    try {
+      await addDoc(collection(db, 'reviews'), {
+        productId: reviewItem.item.id,
+        orderId: reviewItem.orderId,
+        userId: auth.currentUser.uid,
+        userName: auth.currentUser.displayName || (selectedOrder?.customerInfo?.firstName ? `${selectedOrder.customerInfo.firstName} ${selectedOrder.customerInfo.lastName}` : 'Anonymous'),
+        rating,
+        text: reviewText,
+        createdAt: serverTimestamp(),
+        productName: reviewItem.item.name,
+        size: reviewItem.item.selectedSize?.size || ''
+      });
+      alert('Review submitted successfully!');
+      setReviewItem(null);
+      setRating(5);
+      setReviewText('');
+    } catch (error) {
+      console.error('Error submitting review:', error);
+      alert('Failed to submit review');
+    } finally {
+      setSubmitReviewLoading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -386,8 +418,16 @@ function Orders() {
                       )}
                       <div className="orders-item-meta">Qty: {item.quantity || 1}</div>
                     </div>
-                    <div className="orders-item-price">
-                      ₹{Number(item.selectedSize?.price || item.price || 0).toFixed(2)} × {item.quantity || 1}
+                    <div className="orders-item-price" style={{ textAlign: 'right' }}>
+                      <div>₹{Number(item.selectedSize?.price || item.price || 0).toFixed(2)} × {item.quantity || 1}</div>
+                      {(selectedOrder.status === 'paid' || selectedOrder.status === 'completed') && (
+                        <button 
+                          onClick={() => { setReviewItem({ orderId: selectedOrder.id, item }); setRating(5); setReviewText(''); }}
+                          style={{ marginTop: '8px', fontSize: '0.75rem', padding: '6px 10px', background: '#640d14', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                        >
+                          Write a Review
+                        </button>
+                      )}
                     </div>
                   </div>
                 )) || <p>No items found</p>}
@@ -422,6 +462,62 @@ function Orders() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Review Modal */}
+      {reviewItem && (
+        <div className="orders-modal-overlay" onClick={() => setReviewItem(null)}>
+          <div className="orders-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="orders-modal-header">
+              <h4>Review {reviewItem.item.name}</h4>
+              <button className="orders-modal-close" onClick={() => setReviewItem(null)}>✖</button>
+            </div>
+            <div className="orders-modal-body" style={{ padding: '20px' }}>
+              <form onSubmit={handleSubmitReview}>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Rating</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <button
+                        type="button"
+                        key={star}
+                        onClick={() => setRating(star)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          fontSize: '28px',
+                          cursor: 'pointer',
+                          color: star <= rating ? '#f59e0b' : '#e5e7eb',
+                          padding: '0'
+                        }}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>Your Experience</label>
+                  <textarea
+                    value={reviewText}
+                    onChange={(e) => setReviewText(e.target.value)}
+                    required
+                    rows="5"
+                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', fontFamily: 'inherit' }}
+                    placeholder="Tell us what you think about this product..."
+                  ></textarea>
+                </div>
+                <button
+                  type="submit"
+                  disabled={submitReviewLoading}
+                  style={{ width: '100%', padding: '14px', background: '#640d14', color: 'white', border: 'none', borderRadius: '8px', cursor: submitReviewLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}
+                >
+                  {submitReviewLoading ? 'Submitting...' : 'Submit Review'}
+                </button>
+              </form>
             </div>
           </div>
         </div>

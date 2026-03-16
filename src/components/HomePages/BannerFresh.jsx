@@ -4,14 +4,13 @@ import WishlistButton from '../WishlistButton';
 import { db } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
-import "./Bannerfresh.css";
-import '../WishlistButton.css';
+import SectionSkeleton from './SectionSkeleton';
 
 function BannerFresh({ onQuickView }) {
   const { addToCart, isInCart } = useCart();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadingProducts, setLoadingProducts] = useState({}); // Track loading state for each product
+  const [loadingAddToCart, setLoadingAddToCart] = useState(null);
   const navigate = useNavigate();
   const scrollRef = useRef(null);
   const autoScrollRef = useRef();
@@ -33,7 +32,7 @@ function BannerFresh({ onQuickView }) {
             return value !== null && value >= 2 && value <= 10;
           });
         });
-        setProducts(filtered);
+        setProducts(filtered.slice(0, 10));
       } catch (error) {
         console.error('Error fetching products:', error);
       }
@@ -42,6 +41,7 @@ function BannerFresh({ onQuickView }) {
     fetchProducts();
   }, []);
 
+  // Slider Logic
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -55,48 +55,31 @@ function BannerFresh({ onQuickView }) {
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
-  // Drag-to-scroll for desktop
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    let isDown = false;
-    let startX;
-    let scrollLeft;
-    const onMouseDown = (e) => {
-      isDown = true;
-      el.classList.add('dragging');
-      startX = e.pageX - el.offsetLeft;
-      scrollLeft = el.scrollLeft;
-      pauseAutoScroll();
-    };
-    const onMouseLeave = () => {
-      isDown = false;
-      el.classList.remove('dragging');
-    };
-    const onMouseUp = () => {
-      isDown = false;
-      el.classList.remove('dragging');
-    };
-    const onMouseMove = (e) => {
-      if (!isDown) return;
-      e.preventDefault();
-      const x = e.pageX - el.offsetLeft;
-      const walk = (x - startX) * 1.2;
-      el.scrollLeft = scrollLeft - walk;
-    };
-    el.addEventListener('mousedown', onMouseDown);
-    el.addEventListener('mouseleave', onMouseLeave);
-    el.addEventListener('mouseup', onMouseUp);
-    el.addEventListener('mousemove', onMouseMove);
-    return () => {
-      el.removeEventListener('mousedown', onMouseDown);
-      el.removeEventListener('mouseleave', onMouseLeave);
-      el.removeEventListener('mouseup', onMouseUp);
-      el.removeEventListener('mousemove', onMouseMove);
-    };
-  }, []);
+    if (!loading && products.length > 0) {
+      startAutoScroll();
+    }
+    return () => stopAutoScroll();
+  }, [loading, products]);
 
-  // Auto-scroll logic
+  const startAutoScroll = () => {
+    stopAutoScroll();
+    autoScrollRef.current = setInterval(() => {
+      if (!autoScrollPausedRef.current && scrollRef.current) {
+        const el = scrollRef.current;
+        if (el.scrollLeft + el.offsetWidth >= el.scrollWidth - 5) {
+          el.scrollTo({ left: 0, behavior: 'smooth' });
+        } else {
+          el.scrollBy({ left: 340, behavior: 'smooth' });
+        }
+      }
+    }, 4000);
+  };
+
+  const stopAutoScroll = () => {
+    if (autoScrollRef.current) clearInterval(autoScrollRef.current);
+  };
+
   function pauseAutoScroll() {
     autoScrollPausedRef.current = true;
     clearTimeout(autoScrollTimeoutRef.current);
@@ -105,437 +88,235 @@ function BannerFresh({ onQuickView }) {
     }, 2000);
   }
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    function onUserPause() { pauseAutoScroll(); }
-    el.addEventListener('mouseenter', onUserPause);
-    el.addEventListener('touchstart', onUserPause);
-    return () => {
-      el.removeEventListener('mouseenter', onUserPause);
-      el.removeEventListener('touchstart', onUserPause);
-    };
-  }, []);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    let started = false;
-    let startTimeout = setTimeout(() => {
-      started = true;
-    }, 2000);
-    function autoScroll() {
-      if (!started) return;
-      if (autoScrollPausedRef.current) return;
-      // If at end, scroll back to start
-      if (el.scrollLeft + el.offsetWidth >= el.scrollWidth - 2) {
-        el.scrollTo({ left: 0, behavior: 'smooth' });
-      } else {
-        el.scrollLeft += 1.2; // Adjust speed as needed
-      }
-    }
-    autoScrollRef.current = setInterval(autoScroll, 18);
-    return () => {
-      clearTimeout(startTimeout);
-      clearInterval(autoScrollRef.current);
-    };
-  }, []);
-
-  // Button scroll controls (match BestSellers)
-  function scrollByAmount(direction) {
-    const el = scrollRef.current;
-    if (!el) return;
-    pauseAutoScroll();
-    const amount = Math.max(240, Math.floor(el.clientWidth * 0.9));
-    el.scrollBy({ left: direction * amount, behavior: 'smooth' });
-  }
-
-  const handleAddToCart = async (product) => {
-    const size10ml = getPreferredMiniSize(product);
-    const sizeName = size10ml ? size10ml.size : (product.size || '');
-    if (isInCart(product.id, sizeName)) return;
-
-    // Set loading state for this specific product
-    setLoadingProducts(prev => ({ ...prev, [product.id]: true }));
-    
-    await new Promise(res => setTimeout(res, 600));
-    
-    // Get 10ml size since this section displays 10ml prices
-    const productWithSize = {
-      ...product,
-      selectedSize: size10ml || { size: '', price: product.price, oldPrice: product.oldPrice }
-    };
-    
-    addToCart(productWithSize);
-    
-    // Clear loading state for this product
-    setLoadingProducts(prev => ({ ...prev, [product.id]: false }));
-    
-    const offcanvas = document.getElementById('shoppingCart');
-    const bsOffcanvas = new window.bootstrap.Offcanvas(offcanvas);
-    bsOffcanvas.show();
+  // Helper Functions from Category.jsx style
+  const getSelectedSize = (product) => {
+    if (!product.sizes || !Array.isArray(product.sizes) || product.sizes.length === 0) return null;
+    return product.sizes.find(sz => {
+      const val = getNumericSizeValue(sz.size);
+      return val !== null && val >= 2 && val <= 10;
+    }) || product.sizes[0];
   };
 
-  const handleCardClick = (product) => {
-    // Pass the BannerFresh flag through navigation state
-    navigate(`/product/${product.id}`, { 
-      state: { fromBannerFresh: true } 
-    });
+  const getPrimaryImage = (product) => {
+    const sz = getSelectedSize(product);
+    return (sz && sz.images?.[0]) || product.image;
   };
 
-  const handleQuickView = (product) => {
-    if (window.innerWidth < 768) return; // Disable on mobile
-    // Pass a flag to indicate this product is from BannerFresh section
-    onQuickView({ ...product, fromBannerFresh: true });
+  const getSelectedSizePrice = (product) => {
+    const sz = getSelectedSize(product);
+    return sz ? { price: sz.price, oldPrice: sz.oldPrice, size: sz.size, isPreOrder: !!sz.isPreOrder } : { price: null, oldPrice: null, size: null, isPreOrder: false };
   };
 
-  function getNumericSizeValue(label) {
+  const getNumericSizeValue = (label) => {
     if (!label) return null;
     const match = label.toString().match(/(\d+(?:\.\d+)?)/);
     return match ? parseFloat(match[1]) : null;
-  }
-
-  // Helper to get <=10ml size object (prioritize exact 10)
-  function getPreferredMiniSize(product) {
-    if (!Array.isArray(product.sizes)) return null;
-    const exactTen = product.sizes.find(sz => sz && typeof sz === 'object' && sz.size === '10ml');
-    if (exactTen) return exactTen;
-    return product.sizes.find(sz => {
-      if (!sz || typeof sz !== 'object') return false;
-      const val = getNumericSizeValue(sz.size);
-      return val !== null && val >= 2 && val <= 10;
-    }) || null;
-  }
-  function getPrimaryImage(product) {
-    const s10 = getPreferredMiniSize(product);
-    if (s10 && Array.isArray(s10.images) && s10.images[0]) return s10.images[0];
-    const firstSizeImg = Array.isArray(product.sizes) && product.sizes[0] && Array.isArray(product.sizes[0].images) ? product.sizes[0].images[0] : null;
-    return firstSizeImg || product.image;
-  }
-  function getAvailableSizes(product) {
-    if (!Array.isArray(product.sizes)) return [];
-    const formatted = product.sizes
-      .map(sz => (typeof sz === 'object' ? sz.size : sz))
-      .filter(Boolean);
-    return formatted
-      .map(size => ({ size, value: getNumericSizeValue(size) ?? Infinity }))
-      .sort((a, b) => a.value - b.value)
-      .map(entry => entry.size);
-  }
-  function formatPrice(price) {
-    const num = typeof price === 'string' ? parseFloat(price) : price;
-    return isNaN(num) ? '0.00' : num.toFixed(2);
-  }
-
-  // Helper function to get category icon and color
-  const getCategoryInfo = (badge) => {
-    if (!badge) return { icon: 'fa-tag', color: '#fff', bg: 'linear-gradient(135deg, #640d14, #9b7645)' };
-    
-    const badgeLower = badge.toLowerCase();
-    switch (badgeLower) {
-      case 'new':
-        return { icon: 'fa-star', color: '#fff', bg: 'linear-gradient(135deg, #3FC53A, #4CAF50)' };
-      case 'premium':
-        return { icon: 'fa-crown', color: '#fff', bg: 'linear-gradient(135deg, #C9B37E, #D4B04C)' };
-      case 'budget':
-        return { icon: 'fa-tags', color: '#fff', bg: 'linear-gradient(135deg, #2196F3, #1976D2)' };
-      case 'clearence':
-        return { icon: 'fa-fire', color: '#fff', bg: 'linear-gradient(135deg, #FF6B35, #F7931E)' };
-      case 'special edition':
-        return { icon: 'fa-gem', color: '#fff', bg: 'linear-gradient(135deg, #A63A27, #D32F2F)' };
-      case 'sale':
-        return { icon: 'fa-percent', color: '#fff', bg: 'linear-gradient(135deg, #E91E63, #C2185B)' };
-      default:
-        return { icon: 'fa-tag', color: '#fff', bg: 'linear-gradient(135deg, #640d14, #9b7645)' };
-    }
   };
 
-  // Helper to check if product is out of stock (either flag or zero stock)
+  const getAvailableSizes = (product) => {
+    if (!Array.isArray(product.sizes)) return [];
+    const uniqueMap = new Map();
+    product.sizes.forEach(sz => {
+      const label = sz && sz.size ? sz.size : (typeof sz === 'string' ? sz : null);
+      if (!label) return;
+      if (!uniqueMap.has(label)) {
+        uniqueMap.set(label, getNumericSizeValue(label) ?? Infinity);
+      }
+    });
+    return [...uniqueMap.entries()]
+      .sort((a, b) => a[1] - b[1])
+      .map(entry => entry[0]);
+  };
+
   const isOutOfStock = (product) => {
-    if (product.isPreOrder) return false;
+    const sz = getSelectedSize(product);
+    if (sz?.isPreOrder) return false;
     if (product.isOutOfStock) return true;
-    
-    // Check if total stock across all sizes is zero
     if (Array.isArray(product.sizes) && product.sizes.length > 0) {
       return product.sizes.every(sz => (sz.stock === 0 || sz.stock === '0' || sz.isOutOfStock));
     }
-    
-    // If no sizes, check top-level stock if it exists
     return product.stock === 0 || product.stock === '0';
   };
 
-  if (loading) {
-    return <div className="d-flex justify-content-center align-items-center" style={{ minHeight: 200 }}><div className="spinner-border text-primary" role="status"><span className="visually-hidden">Loading...</span></div></div>;
-  }
+  const formatPrice = (p) => {
+    const n = typeof p === 'string' ? parseFloat(p) : p;
+    return isNaN(n) ? '0.00' : n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const getCategoryInfo = (badge) => {
+    if (!badge) return { icon: 'fa-tag', bg: 'linear-gradient(135deg, #640d14, #9b7645)' };
+    const b = badge.toLowerCase();
+    if (b === 'sale') return { icon: 'fa-percentage', bg: '#ef4444' };
+    switch (b) {
+      case 'new': return { icon: 'fa-star', bg: 'linear-gradient(135deg, #3FC53A, #4CAF50)' };
+      case 'premium': return { icon: 'fa-crown', bg: 'linear-gradient(135deg, #C9B37E, #D4B04C)' };
+      default: return { icon: 'fa-tag', bg: 'linear-gradient(135deg, #640d14, #9b7645)' };
+    }
+  };
+
+  const handleAddToCart = async (e, product) => {
+    e.stopPropagation();
+    const sz = getSelectedSize(product);
+    const sizeName = sz ? sz.size : (product.size || '');
+    if (!sz?.isPreOrder && (isOutOfStock(product) || isInCart(product.id, sizeName))) return;
+
+    setLoadingAddToCart(product.id);
+    await new Promise(r => setTimeout(r, 600));
+    addToCart({ ...product, selectedSize: sz || { size: sizeName, price: product.price, oldPrice: product.oldPrice } });
+    setLoadingAddToCart(null);
+    const offcanvas = document.getElementById('shoppingCart');
+    if (offcanvas && window.bootstrap) {
+      const bsOffcanvas = new window.bootstrap.Offcanvas(offcanvas);
+      bsOffcanvas.show();
+    }
+  };
+
+  if (loading) return <SectionSkeleton />;
 
   return (
-    <div>
-      <section className="banner-fresh-section pt-5 pb-4">
-        <div className="">
-          <div className="text-start mb-12" data-aos="fade-up" data-aos-duration="800">
-            <h2 className="s-title font-2 text-capitalize">Explore our miniatures<span className=""></span></h2>
+    <section className="py-12 md:py-24 bg-white relative overflow-hidden">
+      <div className="max-w-[1400px] mx-auto px-4">
+        <div className="flex items-end justify-between mb-12">
+          <div>
+            <span className="text-[10px] md:text-[12px] text-[#640d14] uppercase tracking-[0.4em] font-bold mb-3 block">Miniature Masterpieces</span>
+            <h2 className="text-2xl md:text-4xl font-serif text-neutral-900 uppercase tracking-widest">Explore our miniatures</h2>
           </div>
+          <button 
+            onClick={() => navigate('/category')}
+            className="hidden md:block text-[11px] uppercase tracking-[0.2em] font-bold text-neutral-400 hover:text-black transition-colors"
+          >
+            Explore All Collection →
+          </button>
+        </div>
 
-          <div style={{ position: 'relative' }}>
-            <button
-              type="button"
-              aria-label="Scroll left"
-              className="fresh-slider-nav fresh-slider-nav-left"
-              onClick={() => scrollByAmount(-1)}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              aria-label="Scroll right"
-              className="fresh-slider-nav fresh-slider-nav-right"
-              onClick={() => scrollByAmount(1)}
-            >
-              ›
-            </button>
-            <div
-              className="fresh-products-slider"
-              ref={scrollRef}
-              style={{
-                display: 'flex',
-                overflowX: 'auto',
-                gap: '24px',
-                scrollBehavior: 'smooth',
-                paddingBottom: 8,
-                marginTop: 16,
-                WebkitOverflowScrolling: 'touch',
-                scrollbarWidth: 'none',
-                msOverflowStyle: 'none',
-              }}
-            >
-              <style>{`
-                .fresh-products-slider::-webkit-scrollbar { display: none; }
-                .fresh-slider-nav {
-                  position: absolute;
-                  top: 50%;
-                  transform: translateY(-50%);
-                  z-index: 2;
-                  width: 40px;
-                  height: 40px;
-                  border-radius: 50%;
-                  border: none;
-                  background: rgba(255, 255, 255, 0.9);
-                  box-shadow: 0 4px 14px rgba(0,0,0,0.15);
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  cursor: pointer;
-                  transition: all 0.2s ease;
-                  color: #333;
-                  font-size: 22px;
-                  line-height: 1;
-                }
-                .fresh-slider-nav:hover {
-                  background: #ffffff;
-                  box-shadow: 0 6px 18px rgba(0,0,0,0.2);
-                }
-                .fresh-slider-nav-left { left: -8px; }
-                .fresh-slider-nav-right { right: -8px; }
-                @media (max-width: 576px) { .fresh-slider-nav { display: none; } }
-              `}</style>
-            {products.map((product, index) => {
-              const size10ml = getPreferredMiniSize(product);
-              const displayedSize = size10ml?.size
-                || (Array.isArray(product.sizes) && product.sizes.find(sz => typeof sz === 'object' && sz.size)?.size)
-                || (typeof product.size === 'string' ? product.size : null);
-              const availableSizes = getAvailableSizes(product);
-              return (
-                <div
-                  key={product.id}
-                  className="fresh-product-card"
-                  style={{ width: 308, flex: '0 0 auto' }}
-                  data-aos="fade-up"
-                  data-aos-delay={index * 100}
-                  data-aos-duration="600"
-                >
-                  <div className="card-wrapper">
-                    <div
-                      className="product-image-container"
-                      onClick={() => handleCardClick(product)}
-                    >
-                      <img src={getPrimaryImage(product)} alt={product.name} className="product-image" />
-                      <img src={getPrimaryImage(product)} alt={product.name} className="product-hover-image" />
-                      {product.isPreOrder && (
-                        <div className="product-badge" style={{
-                          background: 'linear-gradient(135deg, #F59E0B, #D97706)',
-                          color: '#fff',
-                          fontWeight: 700,
-                          fontSize: '0.75rem',
-                          padding: '6px 14px',
-                          borderRadius: '20px',
-                          boxShadow: '0 4px 15px rgba(217, 119, 6, 0.3)',
-                          letterSpacing: '0.5px',
-                          textTransform: 'uppercase',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          marginBottom: '8px'
-                        }}>
-                          <i className="fas fa-clock" style={{ fontSize: '0.7rem' }}></i>
-                          <span>Pre-Order</span>
-                        </div>
-                      )}
-                      {product.badge && (() => {
-                        const categoryInfo = getCategoryInfo(product.badge);
-                        return (
-                          <div 
-                            className="product-badge"
-                            style={{
-                              background: categoryInfo.bg,
-                              color: categoryInfo.color,
-                              fontWeight: 700,
-                              fontSize: '0.75rem',
-                              padding: '6px 14px',
-                              borderRadius: '20px',
-                              boxShadow: '0 4px 15px rgba(127, 89, 40, 0.3)',
-                              letterSpacing: '0.5px',
-                              textTransform: 'uppercase',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px'
-                            }}
-                          >
-                            <i className={`fas ${categoryInfo.icon}`} style={{ fontSize: '0.7rem' }}></i>
-                            <span>{product.badge}</span>
-                          </div>
-                        );
-                      })()}
-                    </div>
-
-                    {!isOutOfStock(product) && !product.isPreOrder && (
-                      <div className="product-actions">
-                        <WishlistButton 
-                          product={product} 
-                          className="action-btn wishlist-btn"
-                        />
-                        <button
-                          className={`action-btn cart-btn ${isInCart(product.id, getPreferredMiniSize(product)?.size || product.size || '') ? 'active' : ''}`}
-                          onClick={() => handleAddToCart(product)}
-                          title={isInCart(product.id, getPreferredMiniSize(product)?.size || product.size || '') ? "Added to Cart" : "Add to Cart"}
-                          disabled={loadingProducts[product.id] || isInCart(product.id, getPreferredMiniSize(product)?.size || product.size || '')}
-                        >
-                          {loadingProducts[product.id] ? (
-                            <div className="cart-btn-spinner"></div>
-                          ) : (
-                            <i className={isInCart(product.id, getPreferredMiniSize(product)?.size || product.size || '') ? "fas fa-check" : "icon icon-shop-cart"}></i>
-                          )}
-                        </button>
-                        <button
-                          className="action-btn quickview-btn"
-                          onClick={() => handleQuickView(product)}
-                          title="Quick View"
-                        >
-                          <i className="icon icon-view"></i>
-                        </button>
-                      </div>
-                    )}
-
-                    {product.isPreOrder && (
-                      <div className="product-actions preorder-actions">
-                        <WishlistButton 
-                          product={product} 
-                          className="action-btn wishlist-btn"
-                        />
-                        <button
-                          className="action-btn quickview-btn"
-                          onClick={() => handleQuickView(product)}
-                          title="Quick View"
-                        >
-                          <i className="icon icon-view"></i>
-                        </button>
-                      </div>
-                    )}
-
-                    {isOutOfStock(product) && (
-                      <div className="out-of-stock-overlay">
-                        <span>Out of Stock</span>
-                      </div>
-                    )}
-
-                    {product.isPreOrder && (
-                      <div className="out-of-stock-overlay preorder-overlay" style={{ background: 'rgba(217, 119, 6, 0.7)' }}>
-                        <span>Pre-Order</span>
-                      </div>
-                    )}
+        <div 
+          ref={scrollRef}
+          onMouseEnter={() => autoScrollPausedRef.current = true}
+          onMouseLeave={() => autoScrollPausedRef.current = false}
+          className="flex gap-8 overflow-x-auto no-scrollbar pb-10 -mx-4 px-4 snap-x snap-mandatory"
+        >
+          {products.map((product) => {
+            const sizeInfo = getSelectedSizePrice(product);
+            const badgeInfo = getCategoryInfo(product.badge);
+            const availableSizes = getAvailableSizes(product);
+            
+            return (
+              <div 
+                key={product.id} 
+                className="group relative flex-shrink-0 w-[300px] md:w-[340px] bg-white rounded-[40px] p-6 border border-neutral-50 hover:shadow-2xl hover:shadow-black/5 transition-all duration-700 hover:-translate-y-2 snap-start"
+                style={{ cursor: 'pointer' }}
+                onClick={() => navigate(`/product/${product.id}`)}
+              >
+                {/* Badge */}
+                {product.badge && (
+                  <div 
+                    className="absolute top-8 left-8 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full shadow-lg" 
+                    style={{ background: badgeInfo.bg, color: '#fff' }}
+                  >
+                    <i className={`fas ${badgeInfo.icon} text-[8px]`}></i>
+                    <span className="text-[8px] uppercase tracking-widest font-bold">{product.badge}</span>
                   </div>
+                )}
 
-                  <div className="product-info bg-white" onClick={() => handleCardClick(product)}>
-                    <h3 className="product-brand">{product.brand}</h3>
-                    <h3 className="product-name">{product.name}</h3>
-                    <div className="product-price">
-                      {size10ml ? (
-                        <>
-                          <span className="current-price">
-                            ₹{formatPrice(size10ml.price)}
-                          </span>
-                          {size10ml.oldPrice && (
-                            <>
-                              <span className="old-price">
-                                ₹{formatPrice(size10ml.oldPrice)}
-                              </span>
-                              <span className="discount-percentage">
-                                {Math.round(((size10ml.oldPrice - size10ml.price) / size10ml.oldPrice) * 100)}% OFF
-                              </span>
-                            </>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <span className="current-price">
-                            ₹{product.price?.toFixed ? product.price.toFixed(2) : product.price}
-                          </span>
-                          {product.oldPrice && (
-                            <>
-                              <span className="old-price">
-                                ₹{product.oldPrice?.toFixed ? product.oldPrice.toFixed(2) : product.oldPrice}
-                              </span>
-                              <span className="discount-percentage">
-                                {Math.round(((product.oldPrice - product.price) / product.oldPrice) * 100)}% OFF
-                              </span>
-                            </>
-                          )}
-                        </>
+                {/* Actions */}
+                <div className="absolute top-8 right-8 z-20 flex flex-col gap-3">
+                  <WishlistButton 
+                    product={product} 
+                    className="!bg-white !shadow-lg !w-10 !h-10 !rounded-full !flex !items-center !justify-center !text-neutral-400 hover:!text-[#640d14] transition-all" 
+                  />
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.innerWidth < 768) return;
+                      if (onQuickView) onQuickView(product);
+                    }}
+                    className="hidden md:flex w-10 h-10 bg-white rounded-full items-center justify-center shadow-lg text-neutral-400 hover:text-[#640d14] transition-all"
+                  >
+                    <i className="fas fa-eye text-xs"></i>
+                  </button>
+                </div>
+
+                {/* Image */}
+                <div className="aspect-square mb-6 overflow-hidden rounded-3xl bg-[#fcfcfc]">
+                  <img 
+                    src={getPrimaryImage(product)} 
+                    alt={product.name} 
+                    className={`w-full h-full object-contain p-4 transition-all duration-700 group-hover:scale-110 ${isOutOfStock(product) ? 'grayscale opacity-50' : ''}`} 
+                  />
+                </div>
+
+                {/* Content */}
+                <div className="text-center space-y-2">
+                  <p className="text-[8px] text-[#640d14] uppercase tracking-widest font-bold">{product.brand}</p>
+                  <h3 className="text-sm font-serif text-neutral-900 line-clamp-1 h-5">{product.name}</h3>
+                  
+                  <div className="pt-3 space-y-4">
+                    <div className="flex items-center justify-center gap-3">
+                      <span className="text-sm font-bold text-neutral-900">₹{formatPrice(sizeInfo.price)}</span>
+                      {sizeInfo.oldPrice && (
+                        <span className="text-[14px] text-neutral-400 line-through">₹{formatPrice(sizeInfo.oldPrice)}</span>
                       )}
                     </div>
-                    {displayedSize && (
-                      <div className="product-size-hint" style={{ fontSize: '0.8rem', color: '#555', marginTop: '4px' }}>
-                        Size: {displayedSize}
-                      </div>
+
+                    {sizeInfo.size && (
+                      <div className="text-[11px] text-neutral-500 uppercase tracking-widest font-medium">Size: {sizeInfo.size}</div>
                     )}
+
                     {availableSizes.length > 0 && (
-                      <div className="product-available-sizes mt-2" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      <div className="flex flex-wrap justify-center gap-1.5 mt-2">
                         {availableSizes.map(size => (
-                          <span
-                            key={size}
-                            style={{
-                              fontSize: '0.7rem',
-                              padding: '2px 8px',
-                              borderRadius: '999px',
-                              border: '1px solid rgba(0,0,0,0.08)',
-                              background: 'rgba(0,0,0,0.03)',
-                              color: '#555'
-                            }}
-                          >
+                          <span key={size} className="text-[8px] px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 border border-neutral-200 uppercase tracking-tighter font-bold">
                             {size}
                           </span>
                         ))}
                       </div>
                     )}
+
+                    {sizeInfo.isPreOrder ? (
+                      <div className="w-full py-3.5 rounded-2xl text-[11px] font-bold uppercase tracking-[0.25em] bg-amber-600/10 text-amber-700 text-center border border-amber-600/20">
+                        Pre-Order
+                      </div>
+                    ) : (
+                      <button
+                        onClick={(e) => handleAddToCart(e, product)}
+                        disabled={isOutOfStock(product) || loadingAddToCart === product.id || isInCart(product.id, getSelectedSize(product)?.size || product.size || '')}
+                        className={`group relative w-full py-3.5 rounded-2xl text-[11px] font-bold uppercase tracking-[0.25em]
+                        flex items-center justify-center transition-all duration-300 overflow-hidden shadow-lg
+                        ${isOutOfStock(product) || isInCart(product.id, getSelectedSize(product)?.size || product.size || '')
+                            ? "bg-neutral-100 text-neutral-400 cursor-not-allowed shadow-none"
+                            : "bg-neutral-900 text-white hover:bg-[#640d14] hover:shadow-xl active:scale-[0.97] shadow-neutral-200"
+                          }`}
+                      >
+                        {loadingAddToCart === product.id ? (
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        ) : (
+                          <span className="text-center">
+                            {isOutOfStock(product) ? "Out of Stock" : (isInCart(product.id, getSelectedSize(product)?.size || product.size || '') ? "Added to Cart" : "Add to Cart")}
+                          </span>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
-              );
-            })}
-            </div>
-          </div>
+              </div>
+            );
+          })}
         </div>
-      </section>
 
-    </div>
+        {/* Mobile "Explore All" Button */}
+        <div className="mt-8 flex justify-center md:hidden">
+          <button 
+            onClick={() => navigate('/category')}
+            className="w-full max-w-[280px] py-4 bg-neutral-900 text-white rounded-2xl text-[11px] font-bold uppercase tracking-[0.2em] shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+          >
+            Explore All Collection
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 

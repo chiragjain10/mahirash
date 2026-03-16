@@ -2,64 +2,59 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import BannerSkeleton from './BannerSkeleton';
 
 const FullScreenBanner = () => {
   const navigate = useNavigate();
-  const [videoUrl, setVideoUrl] = useState(''); // no default
-  const [isVideo, setIsVideo] = useState(false); // default to false
+  const [imageUrl, setImageUrl] = useState(''); // no default
+  const [hasImage, setHasImage] = useState(false); // default to false
 
   const handleClick = () => {
     navigate('/category');
   };
 
   useEffect(() => {
-    // Load directly from Firestore - uploaded videos take priority
+    // Load directly from Firestore - banner image
     const ref = doc(db, 'siteConfig', 'videos');
     const unsub = onSnapshot(
       ref,
       (snap) => {
         const data = snap.exists() ? snap.data() : {};
-        const nextUrl = data?.bannerVideoUrl || '';
+        const nextUrl = data?.bannerImageUrl || '';
         if (nextUrl) {
-          setVideoUrl(nextUrl);
-          setIsVideo(true);
+          setImageUrl(nextUrl);
+          setHasImage(true);
         } else {
-          setVideoUrl('');
-          setIsVideo(false);
+          setImageUrl('');
+          setHasImage(false);
         }
       },
       (error) => {
-        console.error('Error loading banner video config:', error);
-        setIsVideo(false);
+        console.error('Error loading banner image config:', error);
+        setHasImage(false);
       }
     );
 
     return () => unsub();
   }, []);
 
-  if (!isVideo || !videoUrl) return null; // Only show if we have an uploaded video
+  if (!hasImage || !imageUrl) return null; // Only show if we have an uploaded image
 
   return (
-    <div
-      onClick={handleClick}
-      className="cursor-pointer"
-      data-aos="zoom-in"
-      data-aos-duration="800"
-      data-aos-delay="200"
-      style={{ position: 'relative', overflow: 'hidden' }}
-    >
-      <video
-        key={videoUrl}
-        src={videoUrl}
-        alt="Mahirash Perfume Banner"
-        className="mb-5"
-        autoPlay
-        loop
-        muted
-        playsInline
-        style={{ width: '100%', height: 'auto', objectFit: 'cover' }}
-      />
-    </div>
+    <section className="py-12 md:py-20 bg-white">
+      <div className="max-w-[1400px] mx-auto px-4">
+        <div 
+          onClick={handleClick} 
+          className="block overflow-hidden rounded-2xl shadow-sm cursor-pointer"
+        >
+          <img 
+            src={imageUrl} 
+            alt="Mahirash Perfume Banner" 
+            className="w-full h-auto object-cover hover:scale-[1.01] transition-transform duration-700"
+          />
+        </div>
+      </div>
+    </section>
   );
 };
 

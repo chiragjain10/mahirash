@@ -62,48 +62,13 @@ export const WishlistProvider = ({ children }) => {
                 return { success: false, message: 'Product already in wishlist' };
             }
 
-            // Build a safe product payload with no undefined fields
-            const sizesArray = Array.isArray(product.sizes) ? product.sizes : [];
-            // Find a size with a valid price (prefer 50ml if present, else lowest numeric)
-            const preferredSize = (() => {
-                const size50 = sizesArray.find(sz => sz && typeof sz === 'object' && sz.size === '50ml' && sz.price !== undefined);
-                if (size50) return size50;
-                const validSizes = sizesArray.filter(sz => sz && typeof sz === 'object' && sz.size && sz.price !== undefined);
-                if (validSizes.length === 0) return null;
-                const sorted = validSizes.sort((a, b) => {
-                    const aMatch = a.size.toString().match(/(\d+(?:\.\d+)?)/);
-                    const bMatch = b.size.toString().match(/(\d+(?:\.\d+)?)/);
-                    if (!aMatch || !bMatch) return 0;
-                    return parseFloat(aMatch[1]) - parseFloat(bMatch[1]);
-                });
-                return sorted[0] || null;
-            })();
-
-            // Derive primary image: prefer from preferredSize.images[0], else first size with image, else product.image
-            const primaryImage = (() => {
-                const fromPreferred = preferredSize && Array.isArray(preferredSize.images) && preferredSize.images[0] ? preferredSize.images[0] : null;
-                if (fromPreferred) return fromPreferred;
-                for (const sz of sizesArray) {
-                    if (sz && Array.isArray(sz.images) && sz.images[0]) return sz.images[0];
-                }
-                return product.image ?? '';
-            })();
-
-            const safePrice = (() => {
-                if (preferredSize && preferredSize.price !== undefined && preferredSize.price !== null) return preferredSize.price;
-                if (product.price !== undefined && product.price !== null) return product.price;
-                return 0;
-            })();
-
             const productToAdd = {
-                id: product.id ?? '',
-                name: product.name ?? '',
-                price: safePrice,
-                image: primaryImage ?? '',
-                badge: product.badge ?? '',
-                category: Array.isArray(product.tags) && product.tags.length > 0 ? (product.tags[0] ?? '') : '',
+                ...product,
                 addedAt: new Date().toISOString()
             };
+
+            // Remove any potential undefined fields that might cause Firestore errors
+            Object.keys(productToAdd).forEach(key => productToAdd[key] === undefined && delete productToAdd[key]);
 
             // Try to update existing document first
             try {

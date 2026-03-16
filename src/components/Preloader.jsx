@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './Preloader.css';
 
-const Preloader = () => {
+const Preloader = ({ onComplete }) => {
   const [isVisible, setIsVisible] = useState(true);
   const [progress, setProgress] = useState(0);
   const [textIndex, setTextIndex] = useState(0);
@@ -33,6 +33,7 @@ const Preloader = () => {
     // Hide preloader after loading
     const timer = setTimeout(() => {
       setIsVisible(false);
+      if (onComplete) onComplete();
     }, 2800);
 
     return () => {
@@ -40,7 +41,7 @@ const Preloader = () => {
       clearInterval(textInterval);
       clearTimeout(timer);
     };
-  }, []);
+  }, [onComplete]);
 
   if (!isVisible) return null;
 

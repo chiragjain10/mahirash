@@ -6,10 +6,9 @@ import { usePreloader } from '../context/PreloaderContext';
 import QuickView from './QuickView';
 import WishlistButton from './WishlistButton';
 import { useCart } from '../context/CartContext';
-import './WishlistButton.css';
 
 const CATEGORIES = ['New', 'Premium', 'Budget', 'Clearence', 'Special Edition', 'Sale'];
-const COLLECTIONS = ['Designer', 'Middle eastern', 'niche', 'Vials', 'Gift sets', 'Combo', 'custom'];
+const COLLECTIONS = ['Designer', 'Middle eastern', 'niche', 'Vials', 'Gift sets', 'Combo'];
 const ITEMS_PER_PAGE = 12;
 const GENDERS = ['All', 'Men', 'Women', 'Unisex'];
 const SIZE_RANGES = [
@@ -91,7 +90,7 @@ const Category = () => {
 
   const getSelectedSizePrice = (product) => {
     const sz = getSelectedSize(product);
-    return sz ? { price: sz.price, oldPrice: sz.oldPrice, size: sz.size } : { price: null, oldPrice: null, size: null };
+    return sz ? { price: sz.price, oldPrice: sz.oldPrice, size: sz.size, isPreOrder: !!sz.isPreOrder } : { price: null, oldPrice: null, size: null, isPreOrder: false };
   };
 
   const getNumericSizeValue = (label) => {
@@ -116,7 +115,9 @@ const Category = () => {
   };
 
   const isOutOfStock = (product) => {
-    if (product.isPreOrder) return false;
+    const sz = getSelectedSize(product);
+    if (sz?.isPreOrder) return false;
+
     if (product.isOutOfStock) return true;
     
     // Check if total stock across all sizes is zero
@@ -172,6 +173,7 @@ const Category = () => {
     const brandParam = searchParams.get('brand');
     const searchParam = searchParams.get('search');
     const priceParam = searchParams.get('price');
+    const sizeParam = searchParams.get('size');
 
     if (brandParam) {
       setSelectedBrands([brandParam]);
@@ -179,6 +181,13 @@ const Category = () => {
     }
     if (searchParam) {
       setSearchTerm(searchParam);
+    }
+    if (sizeParam) {
+      const range = SIZE_RANGES.find(r => r.id === sizeParam);
+      if (range) {
+        setSelectedSizes([sizeParam]);
+        setOpenSections(prev => ({ ...prev, size: true }));
+      }
     }
     if (priceParam) {
         const range = PRICE_RANGES.find(r => r.id === priceParam);
@@ -373,14 +382,14 @@ const Category = () => {
     <div className="bg-white min-h-screen selection:bg-[#640d14]/10 selection:text-[#640d14]">
       {/* Header */}
       <section className="relative py-12 bg-neutral-50 border-b border-neutral-100">
-        <div className="max-w-7xl mx-auto px-4 text-center">
+        <div className="max-w-[1400px] mx-auto px-4 text-center">
           <span className="text-[14px] text-[#640d14] uppercase tracking-[0.5em] mb-4 block">The Collection</span>
           <h1 className="text-3xl md:text-4xl font-serif text-neutral-900 mb-6 uppercase tracking-widest">Masterpieces of Scent</h1>
           <div className="w-16 h-0.5 bg-[#640d14] mx-auto opacity-20 rounded-full"></div>
         </div>
       </section>
 
-      <div className="max-w-7xl mx-auto px-4 py-8 flex flex-col lg:flex-row gap-8">
+      <div className="max-w-[1400px] mx-auto px-4 py-8 flex flex-col lg:flex-row gap-8">
         {/* Sidebar Filters */}
         <aside className="lg:w-72 flex-shrink-0">
           
@@ -583,7 +592,12 @@ const Category = () => {
                   const badgeInfo = getCategoryInfo(product.badge);
                   const availableSizes = getAvailableSizes(product);
                   return (
-                    <div key={product.id} className="group relative bg-white rounded-[40px] p-6 border border-neutral-50 hover:shadow-2xl hover:shadow-black/5 transition-all duration-700 hover:-translate-y-2" onClick={() => navigate(`/product/${product.id}`)}>
+                    <div 
+                      key={product.id} 
+                      className="group relative flex flex-col bg-white rounded-[40px] p-6 border border-neutral-50 hover:shadow-2xl hover:shadow-black/5 transition-all duration-700 hover:-translate-y-2"
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => navigate(`/product/${product.id}`)}
+                    >
                       {product.badge && (
                         <div className="absolute top-8 left-8 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full shadow-lg" style={{ background: badgeInfo.bg, color: '#fff' }}>
                           <i className={`fas ${badgeInfo.icon} text-[8px]`}></i>
@@ -619,7 +633,7 @@ const Category = () => {
                               ))}
                             </div>
                           )}
-                          {product.isPreOrder ? (
+                          {sizeInfo.isPreOrder ? (
                             <div className="w-full py-3.5 rounded-2xl text-[11px] font-semibold uppercase tracking-[0.25em] bg-amber-600/10 text-amber-700 text-center border border-amber-600/20">
                               Pre-Order Only
                             </div>

@@ -158,6 +158,7 @@ function Chart() {
     <button
       className="cart-btn"
       onClick={() => updateQuantity(item.cartItemId, 1)}
+      disabled={(item.selectedSize?.stock != null ? Number(item.selectedSize.stock) : (item.stock != null ? Number(item.stock) : Infinity)) <= item.quantity}
       aria-label="Increase quantity"
     >
       +

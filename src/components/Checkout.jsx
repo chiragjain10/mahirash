@@ -3,8 +3,9 @@ import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { auth, db } from './firebase';
 import { collection, addDoc, serverTimestamp, updateDoc, doc, setDoc, runTransaction, getDoc } from 'firebase/firestore';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import './Checkout.css';
+
 // Load RazorPay script dynamically
 const loadRazorpayScript = (src) => {
   return new Promise((resolve) => {
@@ -17,11 +18,24 @@ const loadRazorpayScript = (src) => {
 };
 
 function Checkout() {
-  const { cartItems, getCartTotal, clearCart } = useCart();
+  const { cartItems: contextCartItems, getCartTotal, clearCart } = useCart();
   const { user, userData } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [giftPackaging, setGiftPackaging] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Determine if this is a "Buy Now" or regular cart checkout
+  const [checkoutItems, setCheckoutItems] = useState([]);
+  const isBuyNow = !!location.state?.buyNowItem;
+
+  useEffect(() => {
+    if (isBuyNow) {
+      setCheckoutItems([location.state.buyNowItem]);
+    } else {
+      setCheckoutItems(contextCartItems);
+    }
+  }, [isBuyNow, location.state, contextCartItems]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -79,7 +93,11 @@ function Checkout() {
   };
 
   // Calculate totals
-  const subtotal = getCartTotal();
+  const subtotal = checkoutItems.reduce((acc, item) => {
+    const price = item.selectedSize?.price || item.price || 0;
+    return acc + (price * (item.quantity || 1));
+  }, 0);
+  
   const shippingCost = subtotal >= 1000 ? 0 : 100;
   const giftCost = giftPackaging ? 100 : 0;
   const total = subtotal + shippingCost + giftCost;
@@ -174,7 +192,7 @@ function Checkout() {
 
     const orderData = {
       customerInfo: formData,
-      items: cartItems,
+      items: checkoutItems,
       subtotal,
       shippingCost,
       giftCost,
@@ -282,7 +300,7 @@ function Checkout() {
             // This automatically updates stock and sets isOutOfStock based on new stock values
             try {
               console.log('Decrementing stock for purchased items...');
-              await adjustInventoryForOrder(cartItems);
+              await adjustInventoryForOrder(checkoutItems);
               console.log('Stock successfully decremented for all items');
             } catch (err) {
               console.error('Payment captured, but failed to update stock immediately. Will require manual reconciliation.', err);
@@ -300,7 +318,7 @@ function Checkout() {
                 status: 'paid',
                 totals: { subtotal, shippingCost, giftCost, total },
                 customer: formData,
-                items: cartItems,
+                items: checkoutItems,
                 userId: auth.currentUser ? auth.currentUser.uid : null,
               };
               fetch('/api/orders', {
@@ -312,12 +330,12 @@ function Checkout() {
             } catch (_) {}
 
             // Clear cart & redirect
-            clearCart();
+            if (!isBuyNow) clearCart();
             navigate('/orders', {
               state: {
                 orderId,
                 total,
-                items: cartItems.length,
+                items: checkoutItems.length,
                 email: formData.email,
               },
             });
@@ -370,7 +388,7 @@ function Checkout() {
     }
   };
 
-  if (cartItems.length === 0) {
+  if (checkoutItems.length === 0) {
     return (
       <div className="checkout-container">
         <div className="checkout-empty">
@@ -556,7 +574,7 @@ function Checkout() {
             <h3 className="checkout-summary-title">Order Summary</h3>
 
             <div className="checkout-order-items">
-              {cartItems.map((item) => {
+              {checkoutItems.map((item) => {
                 const price =
                   item.selectedSize && item.selectedSize.price
                     ? item.selectedSize.price
