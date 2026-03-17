@@ -30,7 +30,7 @@ const AdminLogin = () => {
       const result = await adminLogin(formData.email, formData.password);
       
       if (result.success) {
-        navigate('/bsgvbgfyhkegy4169dashboard', { replace: true });
+        navigate('/admin', { replace: true });
       } else {
         setError(result.message || 'Login failed. Please try again.');
       }

@@ -58,7 +58,7 @@ const AdminRoute = ({ children }) => {
   }
 
   if (!hasAccess) {
-    return <Navigate to="/admin" state={{ from: location }} replace />;
+    return <Navigate to="/admin-login" state={{ from: location }} replace />;
   }
 
   // Render protected content if admin is authenticated

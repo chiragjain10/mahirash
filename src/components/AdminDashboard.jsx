@@ -60,7 +60,7 @@ const AdminDashboard = () => {
   const [csvFile, setCsvFile] = useState(null);
   const [isCsvUploading, setIsCsvUploading] = useState(false);
   const [csvUploadProgress, setCsvUploadProgress] = useState({ current: 0, total: 0, errors: [] });
-  const [activeTab, setActiveTab] = useState('Product Management');
+  const [activeTab, setActiveTab] = useState('Manage Products');
   const [users, setUsers] = useState([]);
   const [isUsersLoading, setIsUsersLoading] = useState(false);
   const [isMetadataUpdating, setIsMetadataUpdating] = useState(false);
@@ -432,6 +432,64 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleReplaceHeroVideo = async (oldUrl, file) => {
+    try {
+      setIsVideoUploading(true);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', 'mahirash_perfumes');
+      
+      const res = await fetch('https://api.cloudinary.com/v1_1/duv9f7v37/video/upload', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      
+      if (data.secure_url) {
+        const docRef = doc(db, 'siteConfig', 'videos');
+        const updatedUrls = currentVideos.heroVideoUrls.map(url => url === oldUrl ? data.secure_url : url);
+        await updateDoc(docRef, { heroVideoUrls: updatedUrls });
+        setCurrentVideos(prev => ({ ...prev, heroVideoUrls: updatedUrls }));
+        showToast('Hero video replaced successfully', 'success');
+      }
+    } catch (error) {
+      console.error('Error replacing hero video:', error);
+      showToast('Failed to replace video', 'error');
+    } finally {
+      setIsVideoUploading(false);
+    }
+  };
+
+  const handleReplaceSingleAsset = async (field, file) => {
+    try {
+      setIsVideoUploading(true);
+      const isVideo = file.type.startsWith('video/');
+      const uploadUrl = `https://api.cloudinary.com/v1_1/duv9f7v37/${isVideo ? 'video' : 'image'}/upload`;
+      
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', 'mahirash_perfumes');
+      
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      
+      if (data.secure_url) {
+        const docRef = doc(db, 'siteConfig', 'videos');
+        await updateDoc(docRef, { [field]: data.secure_url });
+        setCurrentVideos(prev => ({ ...prev, [field]: data.secure_url }));
+        showToast('Asset replaced successfully', 'success');
+      }
+    } catch (error) {
+      console.error('Error replacing asset:', error);
+      showToast('Failed to replace asset', 'error');
+    } finally {
+      setIsVideoUploading(false);
+    }
+  };
+
   const removeHeroVideo = async (url) => {
     if (!window.confirm('Are you sure you want to remove this hero video?')) return;
     try {
@@ -786,7 +844,7 @@ const AdminDashboard = () => {
 
   const sidebarItems = [
     { name: 'Manage Products', icon: <MdList className="w-5 h-5" /> },
-    { name: 'Manage Assets', icon: <MdVideoLibrary className="w-5 h-5" /> },
+    { name: 'Manage Videos', icon: <MdVideoLibrary className="w-5 h-5" /> },
     { name: 'User', icon: <HiUsers className="w-5 h-5" /> },
     { name: 'Orders', icon: <MdReceipt className="w-5 h-5" /> },
     { name: 'Brands', icon: <HiBriefcase className="w-5 h-5" /> },
@@ -795,29 +853,6 @@ const AdminDashboard = () => {
     { name: 'Reviews', icon: <MdComment className="w-5 h-5" /> },
   ];
 
-  const handleUpdateMetadata = async (type, oldVal, newVal) => {
-    if (!newVal || newVal.trim() === '') return;
-    setIsMetadataUpdating(true);
-    try {
-      const docRef = doc(db, 'metadata', 'lists');
-      const fieldMap = { 'Brands': 'brands', 'Categories': 'categories', 'Nodes': 'notes' };
-      const field = fieldMap[type];
-      
-      const currentList = customLists[field] || [];
-      const newList = currentList.map(item => item === oldVal ? newVal.trim().toUpperCase() : item);
-      
-      await setDoc(docRef, { [field]: newList }, { merge: true });
-      setCustomLists(prev => ({ ...prev, [field]: newList }));
-      setEditingMetadata(null);
-      alert(`${type} updated successfully!`);
-    } catch (error) {
-      console.error('Error updating metadata:', error);
-      alert('Failed to update. Check permissions.');
-    } finally {
-      setIsMetadataUpdating(false);
-    }
-  };
-
   const handleDeleteMetadata = async (type, val) => {
     if (!window.confirm(`Are you sure you want to delete "${val}" from ${type}?`)) return;
     setIsMetadataUpdating(true);
@@ -825,16 +860,81 @@ const AdminDashboard = () => {
       const docRef = doc(db, 'metadata', 'lists');
       const fieldMap = { 'Brands': 'brands', 'Categories': 'categories', 'Nodes': 'notes' };
       const field = fieldMap[type];
+      const deletedField = `deleted_${field}`;
       
       const currentList = customLists[field] || [];
       const newList = currentList.filter(item => item !== val);
       
-      await setDoc(docRef, { [field]: newList }, { merge: true });
-      setCustomLists(prev => ({ ...prev, [field]: newList }));
-      alert(`${type} deleted successfully!`);
+      // If it's a base item, we need to track it as deleted
+      const baseMap = { 
+        'Brands': baseBrands, 
+        'Categories': ['Designer', 'Middle eastern', 'niche', 'Vials', 'Gift sets', 'Combo'], 
+        'Nodes': basePerfumeNotes 
+      };
+      const isBase = baseMap[type].includes(val);
+      
+      const updateData = { [field]: newList };
+      if (isBase) {
+        updateData[deletedField] = arrayUnion(val);
+      }
+      
+      await setDoc(docRef, updateData, { merge: true });
+      setCustomLists(prev => ({ 
+        ...prev, 
+        [field]: newList,
+        [deletedField]: isBase ? [...(prev[deletedField] || []), val] : prev[deletedField]
+      }));
+      showToast(`${type} deleted successfully!`, 'success');
     } catch (error) {
       console.error('Error deleting metadata:', error);
-      alert('Failed to delete. Check permissions.');
+      showToast('Failed to delete', 'error');
+    } finally {
+      setIsMetadataUpdating(false);
+    }
+  };
+
+  const handleUpdateMetadata = async (type, oldVal, newVal) => {
+    if (!newVal || newVal.trim() === '') return;
+    setIsMetadataUpdating(true);
+    try {
+      const docRef = doc(db, 'metadata', 'lists');
+      const fieldMap = { 'Brands': 'brands', 'Categories': 'categories', 'Nodes': 'notes' };
+      const field = fieldMap[type];
+      const deletedField = `deleted_${field}`;
+      
+      const baseMap = { 
+        'Brands': baseBrands, 
+        'Categories': ['Designer', 'Middle eastern', 'niche', 'Vials', 'Gift sets', 'Combo'], 
+        'Nodes': basePerfumeNotes 
+      };
+      const isBase = baseMap[type].includes(oldVal);
+      const formattedNewVal = type === 'Brands' ? newVal.trim().toUpperCase() : newVal.trim();
+
+      let newList;
+      const updateData = {};
+
+      if (isBase) {
+        // If updating a base item, we "delete" the old one and add the new one
+        updateData[deletedField] = arrayUnion(oldVal);
+        updateData[field] = arrayUnion(formattedNewVal);
+        newList = [...(customLists[field] || []), formattedNewVal];
+      } else {
+        // Updating a custom item
+        newList = (customLists[field] || []).map(item => item === oldVal ? formattedNewVal : item);
+        updateData[field] = newList;
+      }
+      
+      await setDoc(docRef, updateData, { merge: true });
+      setCustomLists(prev => ({ 
+        ...prev, 
+        [field]: newList,
+        [deletedField]: isBase ? [...(prev[deletedField] || []), oldVal] : prev[deletedField]
+      }));
+      setEditingMetadata(null);
+      showToast(`${type} updated successfully!`, 'success');
+    } catch (error) {
+      console.error('Error updating metadata:', error);
+      showToast('Failed to update', 'error');
     } finally {
       setIsMetadataUpdating(false);
     }
@@ -939,7 +1039,7 @@ const AdminDashboard = () => {
           <div className="flex items-center justify-between">
             <h3 className="text-2xl font-bold text-gray-800">{activeTab}</h3>
             <div className="flex gap-3">
-              {activeTab === 'Product Management' && (
+              {activeTab === 'Manage Products' && (
                 <>
                   <button
                     onClick={() => setShowUploadModal(true)}
@@ -969,8 +1069,8 @@ const AdminDashboard = () => {
             </div>
           </div>
 
-          {/* Stats Grid - Only show Product Management stats in Product Management tab */}
-          {activeTab === 'Product Management' && (
+          {/* Stats Grid - Only show Manage Products stats in Manage Products tab */}
+          {activeTab === 'Manage Products' && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center justify-center space-y-2">
                 <p className="text-gray-500 font-medium uppercase tracking-wider text-xs text-center">Total Products</p>
@@ -989,7 +1089,7 @@ const AdminDashboard = () => {
 
           {/* Tables Section */}
           <div className="space-y-8">
-            {activeTab === 'Product Management' && (
+            {activeTab === 'Manage Products' && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="p-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4">
                   <h4 className="text-lg font-bold text-gray-800 flex items-center gap-2">
@@ -1330,8 +1430,10 @@ const AdminDashboard = () => {
                         'Nodes': basePerfumeNotes 
                       };
                       const field = fieldMap[activeTab];
+                      const deletedField = `deleted_${field}`;
                       const customItems = customLists[field] || [];
-                      const baseItems = baseMap[activeTab];
+                      const deletedItems = customLists[deletedField] || [];
+                      const baseItems = baseMap[activeTab].filter(item => !deletedItems.includes(item));
                       
                       // Combine and mark base items
                       const allItems = [
@@ -1366,31 +1468,27 @@ const AdminDashboard = () => {
                             )}
                           </div>
                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {!isBase && (
-                              <>
-                                {editingMetadata?.type === activeTab && editingMetadata?.oldVal === val ? (
-                                  <button 
-                                    onClick={() => handleUpdateMetadata(activeTab, val, editingMetadata.newVal)}
-                                    className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
-                                  >
-                                    <MdCheckCircle className="w-4 h-4" />
-                                  </button>
-                                ) : (
-                                  <button 
-                                    onClick={() => setEditingMetadata({ type: activeTab, oldVal: val, newVal: val })}
-                                    className="p-1.5 text-slate-600 hover:bg-slate-100 rounded transition-colors"
-                                  >
-                                    <MdEdit className="w-4 h-4" />
-                                  </button>
-                                )}
-                                <button 
-                                  onClick={() => handleDeleteMetadata(activeTab, val)}
-                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                >
-                                  <MdDelete className="w-4 h-4" />
-                                </button>
-                              </>
+                            {editingMetadata?.type === activeTab && editingMetadata?.oldVal === val ? (
+                              <button 
+                                onClick={() => handleUpdateMetadata(activeTab, val, editingMetadata.newVal)}
+                                className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
+                              >
+                                <MdCheckCircle className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={() => setEditingMetadata({ type: activeTab, oldVal: val, newVal: val })}
+                                className="p-1.5 text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                              >
+                                <MdEdit className="w-4 h-4" />
+                              </button>
                             )}
+                            <button 
+                              onClick={() => handleDeleteMetadata(activeTab, val)}
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            >
+                              <MdDelete className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
                       ));
@@ -1426,11 +1524,27 @@ const AdminDashboard = () => {
                          <div key={idx} className="space-y-3">
                            <div className="aspect-video bg-gray-100 rounded-2xl overflow-hidden border border-gray-200 relative group">
                              <video src={url} className="w-full h-full object-cover" muted loop onMouseEnter={e => e.target.play()} onMouseLeave={e => e.target.pause()} />
-                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                               <button onClick={() => removeHeroVideo(url)} className="p-2 bg-white text-red-600 rounded-full shadow-xl hover:scale-110 transition-transform">
-                                 <MdDelete className="w-5 h-5" />
-                               </button>
-                             </div>
+                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                         <button 
+                           onClick={() => {
+                             const input = document.createElement('input');
+                             input.type = 'file';
+                             input.accept = 'video/*';
+                             input.onchange = (e) => {
+                               const file = e.target.files[0];
+                               if (file) handleReplaceHeroVideo(url, file);
+                             };
+                             input.click();
+                           }}
+                           className="p-2 bg-white text-blue-600 rounded-full shadow-xl hover:scale-110 transition-transform"
+                           title="Replace Video"
+                         >
+                           <MdEdit className="w-5 h-5" />
+                         </button>
+                         <button onClick={() => removeHeroVideo(url)} className="p-2 bg-white text-red-600 rounded-full shadow-xl hover:scale-110 transition-transform" title="Remove Video">
+                           <MdDelete className="w-5 h-5" />
+                         </button>
+                       </div>
                            </div>
                            <p className="text-[10px] text-gray-500 font-bold uppercase text-center">Slide {idx + 1}</p>
                          </div>
@@ -1457,13 +1571,30 @@ const AdminDashboard = () => {
                              <span className="text-[10px] font-bold uppercase tracking-widest">No Video Uploaded</span>
                            </div>
                          )}
-                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
-                            <button onClick={() => setShowVideoModal(true)} className="px-4 py-2 bg-white text-slate-900 rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
-                               Change Video
+                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                            <button 
+                              onClick={() => {
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.accept = 'video/*';
+                                input.onchange = (e) => {
+                                  const file = e.target.files[0];
+                                  if (file) handleReplaceSingleAsset('stageVideoUrl', file);
+                                };
+                                input.click();
+                              }}
+                              className="p-3 bg-white text-blue-600 rounded-full shadow-2xl hover:scale-110 transition-transform"
+                              title="Replace Video"
+                            >
+                               <MdEdit className="w-6 h-6" />
                             </button>
                             {currentVideos.stageVideoUrl && (
-                              <button onClick={() => removeSingleAsset('stageVideoUrl')} className="px-4 py-2 bg-red-600 text-white rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
-                                Remove
+                              <button 
+                                onClick={() => removeSingleAsset('stageVideoUrl')} 
+                                className="p-3 bg-white text-red-600 rounded-full shadow-2xl hover:scale-110 transition-transform"
+                                title="Remove Video"
+                              >
+                                <MdDelete className="w-6 h-6" />
                               </button>
                             )}
                          </div>
@@ -1482,13 +1613,30 @@ const AdminDashboard = () => {
                              <span className="text-[10px] font-bold uppercase tracking-widest">No Image Uploaded</span>
                            </div>
                          )}
-                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
-                            <button onClick={() => setShowVideoModal(true)} className="px-4 py-2 bg-white text-slate-900 rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
-                               Change Image
+                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                            <button 
+                              onClick={() => {
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.accept = 'image/*';
+                                input.onchange = (e) => {
+                                  const file = e.target.files[0];
+                                  if (file) handleReplaceSingleAsset('bannerImageUrl', file);
+                                };
+                                input.click();
+                              }}
+                              className="p-3 bg-white text-blue-600 rounded-full shadow-2xl hover:scale-110 transition-transform"
+                              title="Replace Image"
+                            >
+                               <MdEdit className="w-6 h-6" />
                             </button>
                             {currentVideos.bannerImageUrl && (
-                              <button onClick={() => removeSingleAsset('bannerImageUrl')} className="px-4 py-2 bg-red-600 text-white rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
-                                Remove
+                              <button 
+                                onClick={() => removeSingleAsset('bannerImageUrl')} 
+                                className="p-3 bg-white text-red-600 rounded-full shadow-2xl hover:scale-110 transition-transform"
+                                title="Remove Image"
+                              >
+                                <MdDelete className="w-6 h-6" />
                               </button>
                             )}
                          </div>
@@ -1508,13 +1656,30 @@ const AdminDashboard = () => {
                            <span className="text-[10px] font-bold uppercase tracking-widest">No Image Uploaded</span>
                          </div>
                        )}
-                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
-                          <button onClick={() => setShowVideoModal(true)} className="px-4 py-2 bg-white text-slate-900 rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
-                             Change Image
+                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                          <button 
+                            onClick={() => {
+                              const input = document.createElement('input');
+                              input.type = 'file';
+                              input.accept = 'image/*';
+                              input.onchange = (e) => {
+                                const file = e.target.files[0];
+                                if (file) handleReplaceSingleAsset('exclusiveOfferImageUrl', file);
+                              };
+                              input.click();
+                            }}
+                            className="p-3 bg-white text-blue-600 rounded-full shadow-2xl hover:scale-110 transition-transform"
+                            title="Replace Image"
+                          >
+                             <MdEdit className="w-6 h-6" />
                           </button>
                           {currentVideos.exclusiveOfferImageUrl && (
-                            <button onClick={() => removeSingleAsset('exclusiveOfferImageUrl')} className="px-4 py-2 bg-red-600 text-white rounded-full text-xs font-bold uppercase tracking-wider shadow-xl hover:scale-105 transition-transform">
-                              Remove
+                            <button 
+                              onClick={() => removeSingleAsset('exclusiveOfferImageUrl')} 
+                              className="p-3 bg-white text-red-600 rounded-full shadow-2xl hover:scale-110 transition-transform"
+                              title="Remove Image"
+                            >
+                              <MdDelete className="w-6 h-6" />
                             </button>
                           )}
                        </div>

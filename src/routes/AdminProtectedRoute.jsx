@@ -56,7 +56,7 @@ const AdminProtectedRoute = ({ children }) => {
   }
 
   if (!adminUser) {
-    return <Navigate to="/admin/login" state={{ from: location }} replace />;
+    return <Navigate to="/admin-login/login" state={{ from: location }} replace />;
   }
 
   return children || <Outlet />;
